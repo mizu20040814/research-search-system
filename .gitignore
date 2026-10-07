@@ -1,0 +1,8 @@
+# 取得した HTML と抽出結果は再配布可否が未確認のためコミットしない
+data/raw/
+data/out/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+data/rendered/

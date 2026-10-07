@@ -1,0 +1,3 @@
+# 学会別抽出器と評価は標準ライブラリのみで動く(Python 3.10 以上)。
+# 汎用抽出の描画に使う(導入後に python -m playwright install chromium を実行する)
+playwright>=1.40
