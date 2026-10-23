@@ -19,8 +19,8 @@ python -m playwright install chromium
 python -m confprog.generic https://miru-committee.github.io/miru2026/program/timetable/ --conference MIRU --year 2026
 python -m confprog.generic https://www.anlp.jp/proceedings/annual_meeting/2026/ --conference ANLP --year 2026
 
-# 正解データと比べる（--show で取りこぼし・余分・著者違いを表示）
-python -m confprog.evaluate data/out/generic_miru2026.json eval/gold_draft_miru2026.csv --show
+# 正解データと比べる（--show で取りこぼし・余分・属性違いを表示）
+python -m confprog.evaluate data/out/generic_miru2026.json eval/gold_miru2026.csv --show
 # ページ全体を学会別抽出器の出力と比べる（参考値）
 python -m confprog.evaluate data/out/generic_miru2026.json data/out/miru2026.json --all
 ```
