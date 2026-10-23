@@ -27,7 +27,7 @@
 - mainブランチに直接commit・pushしない
 - 作業を始めるときは、必ず最初に次を実行してからブランチを作る
   - `git switch main`
-  - `git pull`
+  - `git pull --ff-only`（origin/main と分岐していたら止まる。その場合は勝手に直さず、人間に報告する）
   - `git fetch --prune`（リモートで削除されたブランチの情報を掃除する）
 - 作業を始めるときは `git switch -c <種別>/<内容>` でブランチを作る（例: feat/add-crawler, fix/score-calc）
 - マージ済みのローカルブランチは削除してよい（未マージのブランチは消さない）
