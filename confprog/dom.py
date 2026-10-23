@@ -27,15 +27,19 @@ class Node:
     def classes(self) -> tuple[str, ...]:
         return tuple(sorted(self.attrs.get("class", "").split()))
 
-    def text(self) -> str:
+    def text(self, keep_sup: bool = False) -> str:
+        """中の文字列。keep_sup=False では上付き文字を読まない。
+
+        上付き文字は著者欄では所属の番号(「久野 証¹、中島 研吾²˒³」)だが、
+        タイトルでは式や化学式(H²、CO₂)の一部なので、使う側で選ぶ。
+        """
         out: list[str] = []
         stack: list[Node | str] = [self]
         while stack:
             n = stack.pop()
             if isinstance(n, str):
                 out.append(n)
-            elif n.tag == "sup":
-                # 上付き文字は所属や脚注の番号(「久野 証¹、中島 研吾²˒³」)なので読まない
+            elif n.tag == "sup" and not keep_sup:
                 out.append(" ")
             elif n.tag in ("br", "p", "div", "li", "tr"):
                 # ブロック境界は空白にする

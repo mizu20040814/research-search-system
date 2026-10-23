@@ -41,10 +41,20 @@ def split_top_level(text: str) -> list[str]:
 
 
 def _split_and_outside(part: str) -> list[str]:
-    head = _AFFIL_RE.split(part, maxsplit=1)[0]
-    rest = part[len(head):]
-    names = _AND_RE.split(head)
-    names[-1] = names[-1] + rest
+    """括弧の外にある " and " / " & " で分ける(所属括弧の前後どちらにあっても分ける)。"""
+    depth, depths = 0, []
+    for ch in part:
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        depths.append(depth)
+    names, start = [], 0
+    for m in _AND_RE.finditer(part):
+        if depths[m.start()] == 0:
+            names.append(part[start:m.start()])
+            start = m.end()
+    names.append(part[start:])
     return names
 
 

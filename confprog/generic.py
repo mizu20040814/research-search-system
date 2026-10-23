@@ -66,12 +66,13 @@ def _path(n: Node) -> tuple[str, ...]:
 class Unit:
     order: int
     path: tuple[str, ...]
-    text: str
+    text: str  # 上付き文字を除いた文字列(特徴の計算と著者・番号に使う)
     node: Node
     href: str | None = None
+    full: str = ""  # 上付き文字も含めた文字列(タイトル・セッション名に使う)
 
 
-def _lines(n: Node) -> list[str]:
+def _lines(n: Node, keep_sup: bool = False) -> list[str]:
     """要素の直下に <br> があれば、その位置で中身を行に分ける。"""
     segs: list[list] = [[]]
     for c in n.children:
@@ -81,7 +82,9 @@ def _lines(n: Node) -> list[str]:
             segs[-1].append(c)
     out = []
     for seg in segs:
-        t = " ".join("".join(x if isinstance(x, str) else x.text() + " " for x in seg).split())
+        t = " ".join("".join(
+            x if isinstance(x, str) else x.text(keep_sup) + ("" if x.tag == "sup" else " ") for x in seg
+        ).split())
         out.append(t)
     return out
 
@@ -103,9 +106,10 @@ def units(root: Node) -> list[Unit]:
         path = _path(n)
         lines = _lines(n) if any(isinstance(c, Node) and c.tag == "br" for c in n.children) else []
         if sum(bool(x) for x in lines) >= 2:
-            for k, line in enumerate(lines):
+            fulls = _lines(n, keep_sup=True)
+            for k, (line, full) in enumerate(zip(lines, fulls)):
                 if line:
-                    out.append(Unit(len(out), path + (f"#{min(k, MAX_LINE)}",), line, n, None))
+                    out.append(Unit(len(out), path + (f"#{min(k, MAX_LINE)}",), line, n, None, full))
             continue
         a = n if n.tag == "a" else None
         p = n.parent
@@ -114,10 +118,12 @@ def units(root: Node) -> list[Unit]:
             p = p.parent
         href = a.attrs.get("href") if a is not None else None
         key = (path, id(n.parent))
+        full = n.text(keep_sup=True)
         if n.tag in INLINE_TAGS and key in merged:
             merged[key].text += " " + text
+            merged[key].full += " " + full
             continue
-        u = Unit(len(out), path, text, n, href)
+        u = Unit(len(out), path, text, n, href, full)
         out.append(u)
         if n.tag in INLINE_TAGS:
             merged[key] = u
@@ -300,7 +306,8 @@ def infer(us: list[Unit]) -> Inference:
     return Inference(title, author, pid, session, cands)
 
 
-_LEAD_ID_RE = re.compile(r"^[\[［(（]?([A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+)[\]］)）]?\s+(?=\S)")
+# 数字を含むものだけを番号とみなす(「Self-supervised」「Multi-task」などを削らない)
+_LEAD_ID_RE = re.compile(r"^[\[［(（]?(?=[A-Za-z_.-]*\d)([A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+)[\]］)）]?\s+(?=\S)")
 
 
 def _split_lead_id(title: str) -> tuple[str | None, str]:
@@ -354,12 +361,12 @@ def extract(html: str, conference: str, year: int | None = None, source_url: str
         idu = last_before(inf.pid, max(prev, a - 4), a)
         se = last_before(inf.session, -1, a)
         names, affs = parse_authors(au.text if au else None)
-        lead_id, title_text = _split_lead_id(t.text) if strip_lead else (None, t.text)
+        lead_id, title_text = _split_lead_id(t.full) if strip_lead else (None, t.full)
         items.append(Presentation(
             conference=conference,
             event=f"{conference}{year}" if year else conference,
             year=year or 0,
-            session=se.text if se else "",
+            session=se.full if se else "",
             title=title_text,
             authors=names,
             url=t.href,
@@ -410,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or Path("data/out") / f"generic_{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "method": "generic-structure-v2.1",
+        "method": "generic-structure-v2.2",
         "conference": args.conference,
         "year": args.year,
         "source_url": args.url,

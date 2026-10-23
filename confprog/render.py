@@ -32,7 +32,10 @@ def render(url: str | None, html: str | None = None, cache_dir: Path | str = "da
            refresh: bool = False) -> str:
     """url のページを描画した HTML を返す。html を渡すと、本体はその HTML を使う(通信しない)。"""
     cache_dir = Path(cache_dir)
-    if url:
+    if url and html is not None:
+        # 渡された HTML ごとに別のキャッシュにする(同じ URL でも中身を変えたら描画し直す)
+        cached = cache_path(f"{url}#input={hashlib.sha1(html.encode()).hexdigest()[:12]}", cache_dir)
+    elif url:
         cached = cache_path(url, cache_dir)
     else:
         cached = cache_dir / f"local_{hashlib.sha1((html or '').encode()).hexdigest()[:8]}.html"
@@ -42,7 +45,7 @@ def render(url: str | None, html: str | None = None, cache_dir: Path | str = "da
     direct = False  # True ならブラウザで直接開く
     if html is None:
         try:
-            html = fetch(url)
+            html = fetch(url, refresh=refresh)
         except FetchError as e:
             if "CERTIFICATE_VERIFY_FAILED" not in str(e):
                 raise
