@@ -9,6 +9,6 @@
 
 ### データ処理
 - 評価用データが学習や前処理に混入する変更（データリーク）を指摘する。
-  このリポジトリでは、正解データ `eval/gold_*.csv` は `confprog.evaluate` で比べるときだけ読む。`confprog/generic.py` の抽出規則やしきい値を、正解データや評価用の大会（MIRU・ANLP 以外の未見の大会）の結果を見て調整する変更も指摘する。MIRU・ANLP は開発用で、学会別抽出器（`confprog/extractors/`）の出力をそのまま正解にしない。
+  このリポジトリでは、正解データ `eval/gold_*.csv` は `confprog.evaluate` で比べるときだけ読み、抽出処理（`confprog/generic.py` など）からは読まない。MIRU・ANLP は開発用で調整に使ってよいが、評価用の大会（MIRU・ANLP 以外の未見の大会）の正解や結果を見て抽出規則やしきい値を調整する変更は指摘する。また、学会別抽出器（`confprog/extractors/`）の出力をそのまま正解にしない。
 - 入力データを上書き・破壊する処理を指摘する。
   安全な形: 処理結果は別のファイルやディレクトリに出力する。取得した HTML のキャッシュ（`data/raw/`・`data/rendered/`）は `confprog/fetch.py`・`confprog/render.py` 以外から書き換えたり消したりせず、正解データ（`eval/gold_*.csv`）は読むだけにする。抽出・評価の結果は `data/out/` 以下（`--out` で指定）に書く。
