@@ -53,6 +53,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     cache: dict[str, tuple[str | None, ListVerdict | None, str]] = {}  # キーは url_key
     budget = {"normal": 0, "hub": 0}
     seen: set[str] = set()
+    sampled: dict[str, Visit] = {}  # 試し開きだけで一覧でなかったページの記録(通常の探索で開いたら置き換える)
 
     def open_page(url: str, kind: str) -> tuple[str | None, ListVerdict | None, str]:
         """取得して判定する。同じページは1回しか取らない。"""
@@ -83,11 +84,11 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                 if v is not None and v.is_list:
                     continue
                 ok = False
-                if key not in seen:  # 試し開きで一覧でなかったページも記録する
-                    seen.add(key)
+                if key not in seen and key not in sampled:  # 試し開きで一覧でなかったページも記録する
                     verdict = "error" if h is None else "none"
-                    visits.append(Visit(link.url, depth + 1, link.score, verdict,
-                                        v.title_count if v else 0, f"試し開き: {err or v.reason}"))
+                    sampled[key] = Visit(link.url, depth + 1, link.score, verdict,
+                                         v.title_count if v else 0, f"試し開き: {err or v.reason}")
+                    visits.append(sampled[key])
                 break
             if ok:
                 hubs.append((shape, [l.url for l in links]))
@@ -105,6 +106,8 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                                     f"ハブのリンク先の上限 {max_hub_pages} 枚で打ち切り(残り {len(members) - i})"))
                 return
             seen.add(key)
+            if key in sampled:
+                visits.remove(sampled.pop(key))
             h, mv, merr = open_page(m, "hub")
             if h is None:
                 visits.append(Visit(m, depth, 0.0, "error", 0, merr))
@@ -140,6 +143,8 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                                 f"上限 {max_pages} 枚で終了(残り候補 {len(queue) + 1})"))
             break
         seen.add(key)
+        if key in sampled:  # 試し開きの記録は、通常の探索の記録に置き換える
+            visits.remove(sampled.pop(key))
         html, v, err = open_page(url, "normal")
         if html is None:
             visits.append(Visit(url, depth, score, "error", 0, err))
@@ -167,9 +172,11 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
         if depth < max_depth:
             order = push_links(html, url, depth, order)
 
+    # 大きい一覧から残す(日別一覧が全体一覧の部分集合のとき、全体一覧のほうを残す)。返す順は見つけた順
+    order_of = {url: i for i, (url, *_rest) in enumerate(found)}
     pages: list[str] = []
     kept: list[set[str]] = []
-    for url, depth, score, v in found:
+    for url, depth, score, v in sorted(found, key=lambda f: -len(set(f[3].titles))):
         titles = set(v.titles)
         dup = next((p for p, t in zip(pages, kept)
                     if titles and t and len(titles & t) / min(len(titles), len(t)) >= DUP_OVERLAP), None)
@@ -179,7 +186,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
         visits.append(Visit(url, depth, score, "list", v.title_count, v.reason))
         pages.append(url)
         kept.append(titles)
-    return LocateResult(top_url, pages, visits)
+    return LocateResult(top_url, sorted(pages, key=order_of.__getitem__), visits)
 
 
 def _print(name: str, r: LocateResult) -> None:

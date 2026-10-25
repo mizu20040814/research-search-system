@@ -184,6 +184,36 @@ class ReviewFixTest(unittest.TestCase):
         self.assertEqual(r.pages, dirs)
 
 
+def numbered_list(tag, n):
+    rows = "".join(f'<tr><td class="t">{tag}に関する研究の第{i + 1}報告と提案手法の評価</td></tr>'
+                   f'<tr><td class="a">山田 太郎, 佐藤 花子 (架空大)</td></tr>' for i in range(n))
+    return f"<html><body><table>{rows}</table></body></html>"
+
+
+class ReviewFix2Test(unittest.TestCase):
+    """Codex 再レビューの指摘(2026-10-25)の再現"""
+
+    def test_superset_list_kept(self):
+        # 先に見つけた日別一覧(3件)が、後の全体一覧(6件)の部分集合でも、全体一覧を捨てない
+        day, all_ = TOP + "day1.html", TOP + "all.html"
+        site = {TOP: top_with((day, "プログラム 日程"), (all_, "プログラム")),
+                day: numbered_list("画像", 3), all_: numbered_list("画像", 6)}
+        r = locate(TOP, get=fake(site))
+        self.assertIn(all_, r.pages)
+        self.assertNotIn(day, r.pages)
+
+    def test_sampled_page_still_expanded(self):
+        # ハブ判定の試し開きで一覧でなかったページも、通常の探索ではリンクをたどる
+        a, lst = TOP + "a.html", TOP + "list.html"
+        b, c, d = (f"{TOP}x/{k}.html" for k in "bcd")
+        site = {TOP: top_with((a, "プログラム 日程"), (b, "プログラム")),
+                a: list_page("画像認識", hrefs=[b, c, d]),
+                b: top_with((lst, "プログラム")), lst: list_page("音声")}
+        r = locate(TOP, get=fake(site))
+        self.assertIn(lst, r.pages)
+        self.assertEqual(len([v for v in r.visits if v.url == b]), 1)
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
