@@ -62,8 +62,8 @@ def main(argv: list[str], embed_factory: Callable[[str], EmbedFn] = load_sentenc
         print("エラー: sentence-transformers が入っていません。pip install sentence-transformers を実行してください",
               file=sys.stderr)
         return 1
-    except OSError as e:
-        print(f"エラー: モデル {args.model} を読めませんでした: {e}", file=sys.stderr)
+    except Exception as e:  # ネットワーク・プロキシ・モデル名の誤りなど、ライブラリごとに例外の型が違う
+        print(f"エラー: モデル {args.model} を読めませんでした: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
     records = load_db(db_path)

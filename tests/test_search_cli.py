@@ -81,6 +81,16 @@ class SearchCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("pip install sentence-transformers", out)
 
+    def test_model_load_failure(self):
+        self.run_cli(["db", "build"])
+
+        def factory(model):
+            raise RuntimeError("403 Forbidden")
+
+        code, out = self.run_cli(["rank", "Q", "--model", "x/y"], factory=factory)
+        self.assertEqual(code, 1)
+        self.assertIn("モデル x/y を読めませんでした", out)
+
 
 if __name__ == "__main__":
     unittest.main()
