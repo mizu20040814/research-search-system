@@ -4,7 +4,7 @@
 1. トップを開いて判定する(トップ自体が発表一覧のこともある)
 2. リンクに「プログラム」などの語で点数をつけ、高い順に開いて判定する(2段まで)
 3. 発表一覧と判定したページは、リンク先も発表一覧なら「ハブ」(一覧の一覧)とみなし、
-   リンク先のほうを返す(目次から分野別ページへ、セッション一覧から各セッションへ)
+   リンク先のほうを返す(目次から分野別ページへ、セッション一覧から各セッションへ。目次→日別目次のような二段も)
 4. 同じ一覧を別ルートで見つけたら1つにまとめる
 
 ページは必ず get(既定は render)で取る。robots.txt・7秒間隔・キャッシュはそちらが守る。
@@ -53,7 +53,8 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     cache: dict[str, tuple[str | None, ListVerdict | None, str]] = {}  # キーは url_key
     budget = {"normal": 0, "hub": 0}
     seen: set[str] = set()
-    sampled: dict[str, Visit] = {}  # 試し開きだけで一覧でなかったページの記録(通常の探索で開いたら置き換える)
+    sampled: dict[str, Visit] = {}  # 試し開き・ハブのリンク先で一覧でなかったページの記録(通常の探索で開いたら置き換える)
+    shape_ok: dict[str, bool] = {}  # 試し開きで確かめた URL の形ごとの結果(同じ形は2度試さない)
 
     def open_page(url: str, kind: str) -> tuple[str | None, ListVerdict | None, str]:
         """取得して判定する。同じページは1回しか取らない。"""
@@ -75,6 +76,10 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                   if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
         hubs: list[tuple[str, list[str]]] = []
         for shape, links in groups:
+            if shape in shape_ok:
+                if shape_ok[shape]:
+                    hubs.append((shape, [l.url for l in links]))
+                continue
             ok = True
             for link in links[:HUB_SAMPLES]:
                 key = url_key(link.url)
@@ -90,31 +95,57 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                                          v.title_count if v else 0, f"試し開き: {err or v.reason}")
                     visits.append(sampled[key])
                 break
+            shape_ok[shape] = ok
             if ok:
                 hubs.append((shape, [l.url for l in links]))
         return hubs or None
 
     found: list[tuple[str, int, float, ListVerdict]] = []
 
+    def take_list(url: str, depth: int, score: float, html: str, v: ListVerdict, *, member: bool = False) -> bool:
+        """一覧と判定したページを、ハブならリンク先を、そうでなければ自分を採用する。
+        上限でハブか確かめられなければ採用せず False を返す。ただしハブのリンク先(member)は
+        リンク先も一覧と分かっている側なので、確かめられなくても一覧として採用する。"""
+        check_hub = not member or depth <= max_depth  # 二段のハブも深さの上限まで
+        hub = find_hub(html, url, depth) if check_hub else None
+        if hub == "limit":
+            if member:
+                found.append((url, depth, score, v))
+                return True
+            visits.append(Visit(url, depth, score, "none", v.title_count, "上限のためハブ判定できず"))
+            return False
+        if hub is None:
+            found.append((url, depth, score, v))
+            return True
+        shapes = [shape for shape, _ in hub]
+        if url_shape(url) in shapes:
+            # 一覧どうしが互いにリンクしている(分野別ページなど)。自分も一覧の1つ
+            found.append((url, depth, score, v))
+        else:
+            visits.append(Visit(url, depth, score, "hub", v.title_count,
+                                f"{', '.join(shapes)} の {HUB_SAMPLES} 件が一覧"))
+        for _, members in hub:
+            adopt_members(members, depth + 1)
+        return True
+
     def adopt_members(members: list[str], depth: int) -> None:
         for i, m in enumerate(members):
             key = url_key(m)
-            if key in seen:
+            if key in seen or key in sampled:
                 continue
             if budget["hub"] >= max_hub_pages and key not in cache:
                 visits.append(Visit(m, depth, 0.0, "none", 0,
                                     f"ハブのリンク先の上限 {max_hub_pages} 枚で打ち切り(残り {len(members) - i})"))
                 return
-            seen.add(key)
-            if key in sampled:
-                visits.remove(sampled.pop(key))
             h, mv, merr = open_page(m, "hub")
-            if h is None:
-                visits.append(Visit(m, depth, 0.0, "error", 0, merr))
-            elif mv.is_list:
-                found.append((m, depth, 0.0, mv))
-            else:
-                visits.append(Visit(m, depth, 0.0, "none", mv.title_count, mv.reason))
+            if h is not None and mv.is_list:
+                seen.add(key)
+                take_list(m, depth, 0.0, h, mv, member=True)
+                continue
+            # 一覧でないリンク先は記録だけ残し、通常の探索で来たらリンクをたどれるようにする
+            sampled[key] = Visit(m, depth, 0.0, "error" if h is None else "none",
+                                 mv.title_count if mv else 0, merr or mv.reason)
+            visits.append(sampled[key])
 
     queue: list[tuple[float, int, str, int]] = [(0.0, 0, top_url, 0)]
     expanded: dict[str, tuple[str, int]] = {}  # 一覧でなかったページの HTML と、たどった深さ
@@ -150,22 +181,8 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
             visits.append(Visit(url, depth, score, "error", 0, err))
             continue
         if v.is_list:
-            hub = find_hub(html, url, depth)
-            if hub == "limit":
-                visits.append(Visit(url, depth, score, "none", v.title_count, "上限のためハブ判定できず"))
+            if not take_list(url, depth, score, html, v):
                 break
-            if hub is None:
-                found.append((url, depth, score, v))
-                continue
-            shapes = [shape for shape, _ in hub]
-            if url_shape(url) in shapes:
-                # 一覧どうしが互いにリンクしている(分野別ページなど)。自分も一覧の1つ
-                found.append((url, depth, score, v))
-            else:
-                visits.append(Visit(url, depth, score, "hub", v.title_count,
-                                    f"{', '.join(shapes)} の {HUB_SAMPLES} 件が一覧"))
-            for _, members in hub:
-                adopt_members(members, depth)
             continue
         visits.append(Visit(url, depth, score, "none", v.title_count, v.reason))
         expanded[key] = (html, depth)

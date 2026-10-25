@@ -214,6 +214,51 @@ class ReviewFix2Test(unittest.TestCase):
         self.assertEqual(len([v for v in r.visits if v.url == b]), 1)
 
 
+class ReviewFix3Test(unittest.TestCase):
+    """Codex 3回目のレビューの指摘(2026-10-25)の再現"""
+
+    def test_adopted_non_list_member_still_expanded(self):
+        # ハブのリンク先に混ざった一覧でないページも、通常の探索ではリンクをたどる
+        a, lst = TOP + "a.html", TOP + "list.html"
+        b, c, d = (f"{TOP}x/{k}.html" for k in "bcd")
+        site = {TOP: top_with((a, "プログラム 日程"), (d, "プログラム")),
+                a: list_page("目次", hrefs=[b, c, d]), b: list_page("音声"), c: list_page("言語"),
+                d: top_with((lst, "プログラム")), lst: list_page("検索")}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(sorted(r.pages), sorted([b, c, lst]))
+        self.assertEqual(len([v for v in r.visits if v.url == d]), 1)
+
+    def test_two_level_hub(self):
+        # 目次 → 日別目次 → セッション別一覧の二段のハブでも、セッション別一覧まで返す
+        days = [f"{TOP}day/d{i}" for i in (1, 2, 3)]
+        sess = {d: [f"{TOP}s/d{i}-{k}" for k in (1, 2, 3)] for i, d in enumerate(days, 1)}
+        site = {TOP: list_page("日程", hrefs=days),
+                **{d: list_page(f"第{i}日", hrefs=sess[d]) for i, d in enumerate(days, 1)},
+                **{s_: list_page(f"分科{s_[-3:]}") for d in days for s_ in sess[d]}}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(sorted(r.pages), sorted(s_ for d in days for s_ in sess[d]))
+
+    def test_member_kept_when_hub_check_hits_limit(self):
+        # ハブのリンク先は一覧と分かっているので、上限で二段目を確かめられなくても捨てない
+        days = [f"{TOP}day/d{i}" for i in (1, 2, 3)]
+        site = {TOP: list_page("日程", hrefs=days),
+                **{d: list_page(f"第{i}日", hrefs=[f"{TOP}s/d{i}-{k}" for k in (1, 2, 3)])
+                   for i, d in enumerate(days, 1)}}
+        r = locate(TOP, get=fake(site), max_pages=3)
+        self.assertEqual(r.pages, days)
+
+    def test_failed_shape_not_resampled(self):
+        # 詳細ページの形は一度「一覧でない」と分かれば、別のページでは試し開きしない
+        ss = [f"{TOP}session/s{i}" for i in (1, 2, 3)]
+        site = {TOP: list_page("セッション", hrefs=ss),
+                **{u: list_page(f"分科{i}", hrefs=[f"{TOP}p/{i}-{k}.html" for k in (1, 2, 3)])
+                   for i, u in enumerate(ss, 1)}}
+        calls = []
+        r = locate(TOP, get=fake(site, calls))
+        self.assertEqual(r.pages, ss)
+        self.assertEqual(len(calls), 5)  # トップ、セッション3つ、詳細ページの試し開き1つ
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
