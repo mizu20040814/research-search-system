@@ -259,6 +259,21 @@ class ReviewFix3Test(unittest.TestCase):
         self.assertEqual(len(calls), 5)  # トップ、セッション3つ、詳細ページの試し開き1つ
 
 
+class ReviewFix4Test(unittest.TestCase):
+    """Codex 4回目のレビューの指摘(2026-10-25)の再現"""
+
+    def test_hub_result_not_reused_for_other_links(self):
+        # 同じ URL の形でも、別のリンク集合が一覧かどうかは改めて確かめる
+        a, b = TOP + "a.html", TOP + "b.html"
+        items = [f"{TOP}item/{i}" for i in range(6)]
+        site = {TOP: top_with((a, "プログラム 日程"), (b, "プログラム")),
+                a: list_page("目次", hrefs=items[:3]), b: list_page("詳細", hrefs=items[3:]),
+                **{u: list_page(f"分科{i}") for i, u in enumerate(items[:3])},
+                **{u: f"<html><body><h1>詳細ページ{i}</h1></body></html>" for i, u in enumerate(items[3:])}}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(sorted(r.pages), sorted(items[:3] + [b]))
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):

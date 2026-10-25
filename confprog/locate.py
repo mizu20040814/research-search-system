@@ -54,7 +54,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     budget = {"normal": 0, "hub": 0}
     seen: set[str] = set()
     sampled: dict[str, Visit] = {}  # 試し開き・ハブのリンク先で一覧でなかったページの記録(通常の探索で開いたら置き換える)
-    shape_ok: dict[str, bool] = {}  # 試し開きで確かめた URL の形ごとの結果(同じ形は2度試さない)
+    bad_shapes: set[str] = set()  # 試し開きで一覧でなかった URL の形(詳細ページの形は2度試さない)
 
     def open_page(url: str, kind: str) -> tuple[str | None, ListVerdict | None, str]:
         """取得して判定する。同じページは1回しか取らない。"""
@@ -76,9 +76,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                   if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
         hubs: list[tuple[str, list[str]]] = []
         for shape, links in groups:
-            if shape in shape_ok:
-                if shape_ok[shape]:
-                    hubs.append((shape, [l.url for l in links]))
+            if shape in bad_shapes:  # 成功は使い回さない(同じ形でもリンク先が一覧とは限らない)
                 continue
             ok = True
             for link in links[:HUB_SAMPLES]:
@@ -95,9 +93,10 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                                          v.title_count if v else 0, f"試し開き: {err or v.reason}")
                     visits.append(sampled[key])
                 break
-            shape_ok[shape] = ok
             if ok:
                 hubs.append((shape, [l.url for l in links]))
+            else:
+                bad_shapes.add(shape)
         return hubs or None
 
     found: list[tuple[str, int, float, ListVerdict]] = []
