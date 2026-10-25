@@ -379,6 +379,50 @@ def extract(html: str, conference: str, year: int | None = None, source_url: str
     return items, inf
 
 
+# ---------- 発表一覧かどうかの判定(ページ特定で使う) ----------
+
+LIST_MIN_TITLES = 3
+LIST_LEN_RANGE = (10, 200)  # メニュー(数文字)や要旨(数百字)を外す
+LIST_MIN_AUTHOR_COV = 0.5  # お知らせ一覧のように著者の付かない繰り返しを外す
+
+
+@dataclass
+class ListVerdict:
+    is_list: bool
+    title_count: int
+    median_len: float
+    author_coverage: float
+    titles: list[str]
+    reason: str
+
+
+def judge_list(html: str) -> ListVerdict:
+    """ページが発表一覧かを、抽出器の推定結果から判定する。理由は最初に落ちた条件。"""
+    us = units(parse(html))
+    try:
+        inf = infer(us)
+    except ValueError:
+        return ListVerdict(False, 0, 0.0, 0.0, [], "繰り返しの欄なし")
+    titles = [u.full for u in inf.title.members]
+    n = len(titles)
+    median_len = statistics.median(len(u.text) for u in inf.title.members)
+    pos = [u.order for u in inf.title.members] + [len(us)]
+    authors = sorted(u.order for u in inf.author.members) if inf.author else []
+    covered = sum(any(a < o < b for o in authors) for a, b in zip(pos, pos[1:]))
+    cov = covered / n
+
+    lo, hi = LIST_LEN_RANGE
+    if n < LIST_MIN_TITLES:
+        reason = f"タイトル {n} 件 < {LIST_MIN_TITLES}"
+    elif not lo <= median_len <= hi:
+        reason = f"長さ中央値 {median_len:.1f} が {lo}〜{hi} の外"
+    elif cov < LIST_MIN_AUTHOR_COV:
+        reason = f"著者付き {cov:.2f} < {LIST_MIN_AUTHOR_COV}"
+    else:
+        reason = "ok"
+    return ListVerdict(reason == "ok", n, float(median_len), cov, titles, reason)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="confprog.generic", description="汎用の抽出(構造推定)")
     ap.add_argument("url", nargs="?", help="プログラムページの URL")
