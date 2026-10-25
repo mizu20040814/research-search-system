@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import heapq
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
@@ -25,6 +26,7 @@ HUB_MIN_GROUP = 3  # ハブとみなすリンクのまとまりの最小の大�
 HUB_MAX_GROUPS = 3  # 1ページで試すまとまりの数
 HUB_SAMPLES = 2  # まとまりごとに試し開きする数
 DUP_OVERLAP = 0.8  # タイトルがこの割合以上同じなら同じ一覧
+_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 
 
 @dataclass
@@ -48,7 +50,8 @@ class LocateResult:
 
 
 def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int = 2,
-           max_pages: int = 25, max_hub_pages: int = 200) -> LocateResult:
+           max_pages: int = 25, max_hub_pages: int = 200, year: int | None = None) -> LocateResult:
+    """year を渡すと、URL に別の年(過去・翌年の大会)が入ったリンクはたどらない。"""
     visits: list[Visit] = []
     cache: dict[str, tuple[str | None, ListVerdict | None, str]] = {}  # キーは url_key
     budget = {"normal": 0, "hub": 0}
@@ -63,16 +66,22 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
             budget[kind] += 1
             try:
                 html = get(url)
-            except (FetchError, RenderError) as e:
+            except (FetchError, RenderError, ValueError) as e:  # ValueError は不正な URL
                 cache[key] = (None, None, str(e)[:200])
             else:
                 cache[key] = (html, judge_list(html), "")
         return cache[key]
 
+    def links_of(html: str, url: str, *, positive_only: bool = True) -> list:
+        links = collect_links(html, url, top_url, positive_only=positive_only)
+        if year is None:
+            return links
+        return [l for l in links if not (ys := _YEAR.findall(l.url)) or str(year) in ys]
+
     def find_hub(html: str, url: str, depth: int) -> list[tuple[str, list[str]]] | str | None:
         """リンク先が発表一覧のまとまりを全部 (形, URL のリスト) で返す(口頭とポスターのように複数ありうる)。
         1つも確かめられないうちに上限に達したら "limit"。"""
-        groups = [g for g in group_by_shape(collect_links(html, url, top_url, positive_only=False))
+        groups = [g for g in group_by_shape(links_of(html, url, positive_only=False))
                   if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
         hubs: list[tuple[str, list[str]]] = []
         for shape, links in groups:
@@ -117,6 +126,10 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
             found.append((url, depth, score, v))
             return True
         shapes = [shape for shape, _ in hub]
+        if url_shape(url) in shapes and url_key(url) == url_key(top_url):
+            # トップ自体が一覧で、同じ形の一覧にリンクしている = 他の開催回のプログラム(IEICE)。採らない
+            found.append((url, depth, score, v))
+            return True
         if url_shape(url) in shapes:
             # 一覧どうしが互いにリンクしている(分野別ページなど)。自分も一覧の1つ
             found.append((url, depth, score, v))
@@ -150,7 +163,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     expanded: dict[str, tuple[str, int]] = {}  # 一覧でなかったページの HTML と、たどった深さ
 
     def push_links(html: str, url: str, depth: int, order: int) -> int:
-        for link in collect_links(html, url, top_url)[:TOP_K]:
+        for link in links_of(html, url)[:TOP_K]:
             k = url_key(link.url)
             if k not in seen or (k in expanded and depth + 1 < expanded[k][1]):
                 heapq.heappush(queue, (-link.score, order, link.url, depth + 1))
@@ -252,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         name, year, url = row["学会"], row["年"], row["トップURL"]
         print(f"[{i}/{len(rows)}] {name} {year} {url}", flush=True)
         try:
-            r = locate(url, get=render)
+            r = locate(url, get=render, year=int(row["年"]) if row.get("年", "").strip().isdigit() else None)
         except Exception as e:  # 1大会が失敗しても残りは続ける
             print(f"    エラー: {type(e).__name__}: {e}")
             summary.append([name, year, 0, 0, f"{type(e).__name__}: {e}"[:200]])

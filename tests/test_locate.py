@@ -274,6 +274,36 @@ class ReviewFix4Test(unittest.TestCase):
         self.assertEqual(sorted(r.pages), sorted(items[:3] + [b]))
 
 
+class RealRunFixTest(unittest.TestCase):
+    """6大会の実行(2026-10-25)で見つかった問題の再現"""
+
+    def test_invalid_url_recorded_not_raised(self):
+        def get(url):
+            if url == TOP:
+                return top_with((TOP + "program.html", "プログラム"))
+            raise ValueError("URL can't contain control characters")
+        r = locate(TOP, get=get)
+        self.assertEqual([v.verdict for v in r.visits if v.url.endswith("program.html")], ["error"])
+
+    def test_top_list_does_not_adopt_same_shape_pages(self):
+        # トップ自体が一覧なら、同じ形のリンク先(他の開催回のプログラム)は採用しない(IEICE)
+        top = "https://example.org/program/index.php?id=a"
+        others = [f"https://example.org/program/index.php?id={k}" for k in "bcd"]
+        page = lambda tag, hrefs=None: list_page(tag, hrefs).replace(
+            "</body>", "".join(f'<a href="{u}">第{i}回</a>' for i, u in enumerate(others)) + "</body>")
+        site = {top: page("今回"), **{u: list_page(f"別の回{i}") for i, u in enumerate(others)}}
+        r = locate(top, get=fake(site))
+        self.assertEqual(r.pages, [top])
+
+    def test_other_year_links_skipped(self):
+        # 学会リストの年と違う年が URL に入ったリンクはたどらない(YANS の過去・翌年の記事)
+        top = "https://example.org/entry/conf2025"
+        p25, p23 = "https://example.org/entry/conf2025program", "https://example.org/entry/conf2023program"
+        site = {top: top_with((p25, "プログラム"), (p23, "プログラム")), p25: list_page("今年"), p23: list_page("昔")}
+        self.assertEqual(locate(top, get=fake(site), year=2025).pages, [p25])
+        self.assertEqual(sorted(locate(top, get=fake(site)).pages), sorted([p25, p23]))
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):

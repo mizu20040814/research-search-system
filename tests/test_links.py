@@ -62,6 +62,14 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(normalize_url("https://e.org/a/index.htm"), "https://e.org/a/")
 
 
+class UnsafeCharTest(unittest.TestCase):
+    def test_space_in_href_quoted(self):
+        # IEICE の検索リンクのように href に空白があっても、取得できる URL にする(2026-10-25 実行で落ちた)
+        self.assertEqual(normalize_url("https://example.org/s/index.php?q=a OR b"),
+                         "https://example.org/s/index.php?q=a%20OR%20b")
+        self.assertEqual(normalize_url("https://example.org/a%20b/?x=%E3%81%82"), "https://example.org/a%20b/?x=%E3%81%82")
+
+
 class ShapeTest(unittest.TestCase):
     def test_group(self):
         ls = [Link(f"https://e.org/ev/session/{k}", "", 0) for k in ("a1", "b2", "c3")]

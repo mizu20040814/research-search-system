@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import quote, urldefrag, urljoin, urlparse
 
 from .dom import parse
 
@@ -35,8 +35,9 @@ class Link:
 
 
 def normalize_url(url: str) -> str:
-    """# 以降を落とし、末尾の index.html / index.htm を / にそろえる。"""
-    url = urldefrag(url)[0]
+    """# 以降を落とし、末尾の index.html / index.htm を / にそろえる。
+    href に空白や日本語がそのまま入っていても取得できるよう、URL に使えない文字は %xx にする。"""
+    url = quote(urldefrag(url)[0], safe="%/:?#[]@!$&'()*+,;=~")
     for idx in ("/index.html", "/index.htm"):
         if url.endswith(idx):
             return url[: -len(idx) + 1]
