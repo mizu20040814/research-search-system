@@ -12,8 +12,10 @@ TOP = "https://example.org/conf2026/"
 S1, S2, S3 = (f"{TOP}session/s{i}" for i in (1, 2, 3))
 
 
-def fake(pages):
+def fake(pages, calls=None):
     def get(url):
+        if calls is not None:
+            calls.append(url)
         if url not in pages:
             raise FetchError(f"取得に失敗しました: {url}")
         return pages[url]
@@ -94,10 +96,6 @@ class LocateTest(unittest.TestCase):
         self.assertEqual(r.pages, [TOP + "program.html"])
         self.assertIn("duplicate", [v.verdict for v in r.visits])
 
-    def test_page_limit(self):
-        r = locate(TOP, get=fake(MANY_LINKS_SITE), max_pages=5)
-        self.assertLessEqual(len(r.visits), 5)
-
     def test_depth_limit(self):
         r = locate(TOP, get=fake(DEEP_SITE), max_depth=2)
         self.assertEqual(r.pages, [])
@@ -115,6 +113,48 @@ class LocateTest(unittest.TestCase):
         r = locate(TOP, get=fake(HUB_SAMPLE_ERROR_SITE))
         self.assertEqual(r.pages, [TOP])
         self.assertIn("error", [v.verdict for v in r.visits if v.url == S1])
+
+
+P = [f"{TOP}prog/p{i}.html" for i in (1, 2, 3, 4)]
+_NAV = "".join(f'<a href="{u}">第{i + 1}部</a>' for i, u in enumerate(P))
+SIBLING_SITE = {TOP: top_with((P[0], "プログラム")),
+                **{u: list_page(f"分野{i}").replace("<table>", f"<nav>{_NAV}</nav><table>") for i, u in enumerate(P)}}
+
+
+class ReviewFixTest(unittest.TestCase):
+    """全体レビューの指摘(2026-10-25)の再現"""
+
+    def test_sibling_lists_all_returned(self):
+        # 一覧どうしが互いにリンクしていても、最初に着いた一覧を落とさない(IPSJ の program1〜8)
+        r = locate(TOP, get=fake(SIBLING_SITE))
+        self.assertEqual(r.pages, P)
+
+    def test_hub_check_cut_by_limit_not_adopted(self):
+        # 上限で試し開きを打ち切ったページは、ハブか分からないので採用しない
+        r = locate(TOP, get=fake(TOP_HUB_SITE), max_pages=2)
+        self.assertEqual(r.pages, [])
+        self.assertTrue(any("上限" in v.reason for v in r.visits if v.url == TOP))
+
+    def test_samples_recorded(self):
+        calls = []
+        r = locate(TOP, get=fake(DETAIL_SITE, calls))
+        self.assertEqual(len(r.visits), len(calls))
+        self.assertTrue(any("試し開き" in v.reason for v in r.visits if v.url.endswith("p/1.html")))
+
+    def test_page_limit_counts_gets_and_records_stop(self):
+        calls = []
+        r = locate(TOP, get=fake(MANY_LINKS_SITE, calls), max_pages=5)
+        self.assertLessEqual(len(calls), 5)
+        self.assertIn("上限", r.visits[-1].reason)
+
+    def test_trailing_slash_same_page(self):
+        calls = []
+        top_noslash = TOP.rstrip("/")
+        site = {top_noslash: top_with((TOP, "トップ"), (TOP + "program", "プログラム"), (TOP + "program/", "プログラム")),
+                TOP + "program": LIST_A}
+        r = locate(top_noslash, get=fake(site, calls))
+        self.assertEqual(r.pages, [TOP + "program"])
+        self.assertEqual(calls, [top_noslash, TOP + "program"])
 
 
 class MainTest(unittest.TestCase):

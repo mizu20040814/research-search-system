@@ -45,6 +45,11 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(collect_links(html, TOP, TOP), [])
         self.assertEqual(len(collect_links(html, TOP, TOP, positive_only=False)), 2)
 
+    def test_trailing_slash_merged(self):
+        html = '<a href="/conf2026/program">プログラム</a><a href="/conf2026/program/">日程</a><a href="/conf2026">トップ</a>'
+        links = collect_links(html, TOP, TOP)
+        self.assertEqual([l.url for l in links], ["https://example.org/conf2026/program"])
+
     def test_sorted_by_score(self):
         html = '<a href="/x/timetable">日程</a><a href="/conf2026/program">プログラム</a>'
         urls = [l.url for l in collect_links(html, TOP, TOP)]

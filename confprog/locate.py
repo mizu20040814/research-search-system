@@ -17,7 +17,7 @@ from typing import Callable
 
 from .fetch import FetchError
 from .generic import ListVerdict, judge_list
-from .links import collect_links, group_by_shape, normalize_url
+from .links import collect_links, group_by_shape, url_key, url_shape
 from .render import RenderError, render
 
 TOP_K = 8  # 各ページから開く候補リンクの数
@@ -50,81 +50,104 @@ class LocateResult:
 def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int = 2,
            max_pages: int = 25, max_hub_pages: int = 200) -> LocateResult:
     visits: list[Visit] = []
-    cache: dict[str, tuple[str | None, ListVerdict | None, str]] = {}
+    cache: dict[str, tuple[str | None, ListVerdict | None, str]] = {}  # キーは url_key
     budget = {"normal": 0, "hub": 0}
+    seen: set[str] = set()
 
     def open_page(url: str, kind: str) -> tuple[str | None, ListVerdict | None, str]:
-        """取得して判定する。同じ URL は1回しか取らない。"""
-        if url not in cache:
+        """取得して判定する。同じページは1回しか取らない。"""
+        key = url_key(url)
+        if key not in cache:
             budget[kind] += 1
             try:
                 html = get(url)
             except (FetchError, RenderError) as e:
-                cache[url] = (None, None, str(e)[:200])
+                cache[key] = (None, None, str(e)[:200])
             else:
-                cache[url] = (html, judge_list(html), "")
-        return cache[url]
+                cache[key] = (html, judge_list(html), "")
+        return cache[key]
 
-    def find_hub(html: str, url: str, depth: int, score: float) -> list[str] | None:
-        """リンク先が発表一覧なら、そのまとまりの URL を返す。"""
+    def find_hub(html: str, url: str, depth: int) -> tuple[str, list[str]] | str | None:
+        """リンク先が発表一覧なら (形, URL のリスト) を返す。上限で判定できなければ "limit"。"""
         groups = [g for g in group_by_shape(collect_links(html, url, top_url, positive_only=False))
                   if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
         for shape, links in groups:
             ok = True
             for link in links[:HUB_SAMPLES]:
-                if budget["normal"] >= max_pages and link.url not in cache:
-                    return None
+                key = url_key(link.url)
+                if budget["normal"] >= max_pages and key not in cache:
+                    return "limit"
                 h, v, err = open_page(link.url, "normal")
-                if h is None:
-                    visits.append(Visit(link.url, depth, link.score, "error", 0, err))
-                    seen.add(link.url)
-                if v is None or not v.is_list:
-                    ok = False
-                    break
+                if v is not None and v.is_list:
+                    continue
+                ok = False
+                if key not in seen:  # 試し開きで一覧でなかったページも記録する
+                    seen.add(key)
+                    verdict = "error" if h is None else "none"
+                    visits.append(Visit(link.url, depth + 1, link.score, verdict,
+                                        v.title_count if v else 0, f"試し開き: {err or v.reason}"))
+                break
             if ok:
-                visits.append(Visit(url, depth, score, "hub", 0, f"{shape} の {HUB_SAMPLES} 件が一覧"))
-                return [l.url for l in links]
+                return shape, [l.url for l in links]
         return None
 
     found: list[tuple[str, int, float, ListVerdict]] = []
-    seen: set[str] = set()
-    top = normalize_url(top_url)
-    queue: list[tuple[float, int, str, int]] = [(0.0, 0, top, 0)]
+
+    def adopt_members(members: list[str], depth: int) -> None:
+        for i, m in enumerate(members):
+            key = url_key(m)
+            if key in seen:
+                continue
+            if budget["hub"] >= max_hub_pages and key not in cache:
+                visits.append(Visit(m, depth, 0.0, "none", 0,
+                                    f"ハブのリンク先の上限 {max_hub_pages} 枚で打ち切り(残り {len(members) - i})"))
+                return
+            seen.add(key)
+            h, mv, merr = open_page(m, "hub")
+            if h is None:
+                visits.append(Visit(m, depth, 0.0, "error", 0, merr))
+            elif mv.is_list:
+                found.append((m, depth, 0.0, mv))
+            else:
+                visits.append(Visit(m, depth, 0.0, "none", mv.title_count, mv.reason))
+
+    queue: list[tuple[float, int, str, int]] = [(0.0, 0, top_url, 0)]
     order = 1
     while queue:
         neg, _, url, depth = heapq.heappop(queue)
-        if url in seen:
+        score = -neg + 0.0  # -0.0 を出さない
+        key = url_key(url)
+        if key in seen:
             continue
-        if budget["normal"] >= max_pages and url not in cache:
+        if budget["normal"] >= max_pages and key not in cache:
+            visits.append(Visit(url, depth, score, "none", 0,
+                                f"上限 {max_pages} 枚で終了(残り候補 {len(queue) + 1})"))
             break
-        seen.add(url)
+        seen.add(key)
         html, v, err = open_page(url, "normal")
         if html is None:
-            visits.append(Visit(url, depth, -neg, "error", 0, err))
+            visits.append(Visit(url, depth, score, "error", 0, err))
             continue
         if v.is_list:
-            members = find_hub(html, url, depth, -neg)
-            if members is None:
-                found.append((url, depth, -neg, v))
+            hub = find_hub(html, url, depth)
+            if hub == "limit":
+                visits.append(Visit(url, depth, score, "none", v.title_count, "上限のためハブ判定できず"))
+                break
+            if hub is None:
+                found.append((url, depth, score, v))
                 continue
-            for m in members:
-                if m in seen:
-                    continue
-                if budget["hub"] >= max_hub_pages and m not in cache:
-                    break
-                seen.add(m)
-                h, mv, merr = open_page(m, "hub")
-                if h is None:
-                    visits.append(Visit(m, depth, 0.0, "error", 0, merr))
-                elif mv.is_list:
-                    found.append((m, depth, 0.0, mv))
-                else:
-                    visits.append(Visit(m, depth, 0.0, "none", mv.title_count, mv.reason))
+            shape, members = hub
+            if shape == url_shape(url):
+                # 一覧どうしが互いにリンクしている(分野別ページなど)。自分も一覧の1つ
+                found.append((url, depth, score, v))
+            else:
+                visits.append(Visit(url, depth, score, "hub", v.title_count, f"{shape} の {HUB_SAMPLES} 件が一覧"))
+            adopt_members(members, depth)
             continue
-        visits.append(Visit(url, depth, -neg, "none", v.title_count, v.reason))
+        visits.append(Visit(url, depth, score, "none", v.title_count, v.reason))
         if depth < max_depth:
             for link in collect_links(html, url, top_url)[:TOP_K]:
-                if link.url not in seen:
+                if url_key(link.url) not in seen:
                     heapq.heappush(queue, (-link.score, order, link.url, depth + 1))
                     order += 1
 

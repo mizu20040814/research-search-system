@@ -43,6 +43,12 @@ def normalize_url(url: str) -> str:
     return url
 
 
+def url_key(url: str) -> str:
+    """同じページかを比べるためのキー。normalize_url に加えて末尾の / をそろえる。"""
+    url = normalize_url(url)
+    return url[:-1] if url.endswith("/") and urlparse(url).path not in ("", "/") else url
+
+
 def _dir(url: str) -> str:
     p = urlparse(url)
     return p.path if p.path.endswith("/") else p.path.rsplit("/", 1)[0] + "/"
@@ -67,8 +73,9 @@ def collect_links(html: str, page_url: str, top_url: str, *, positive_only: bool
             base = urljoin(page_url, n.attrs["href"])
             break
     host = urlparse(top_url).netloc
-    skip = {normalize_url(page_url), normalize_url(top_url)}
+    skip = {url_key(page_url), url_key(top_url)}
     texts: dict[str, list[str]] = {}
+    first: dict[str, str] = {}  # キー → 最初に見つけた URL(取得にはこちらを使う)
     for n in root.iter():
         href = n.attrs.get("href", "").strip() if n.tag == "a" else ""
         if not href or href.startswith("#"):
@@ -76,16 +83,18 @@ def collect_links(html: str, page_url: str, top_url: str, *, positive_only: bool
         url = normalize_url(urljoin(base, href))
         p = urlparse(url)
         text = n.text()
-        if p.scheme not in ("http", "https") or p.netloc != host or url in skip:
+        key = url_key(url)
+        if p.scheme not in ("http", "https") or p.netloc != host or key in skip:
             continue
         if p.path.lower().endswith(_FILE_EXTS):
             continue
         if "login" in p.path.lower() or "login" in text.lower() or "ログイン" in text:
             continue
-        lst = texts.setdefault(url, [])
+        first.setdefault(key, url)
+        lst = texts.setdefault(key, [])
         if text and text not in lst:
             lst.append(text)
-    links = [Link(u, " / ".join(t), 0.0) for u, t in texts.items()]
+    links = [Link(first[k], " / ".join(t), 0.0) for k, t in texts.items()]
     for link in links:
         link.score = score_link(link.text, link.url, top_url)
     if positive_only:
