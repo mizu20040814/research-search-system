@@ -91,6 +91,59 @@ class SearchCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("モデル x/y を読めませんでした", out)
 
+    def test_rank_results_are_sorted(self):
+        self.run_cli(["db", "build"])
+        self.run_cli(["rank", "Q"])
+        run = json.loads(next(self.paths["runs_dir"].glob("*.json")).read_text(encoding="utf-8"))
+        scores = [r["score"] for r in run["results"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_empty_db_fails(self):
+        (self.paths["out_dir"] / "generic_ev.json").unlink()
+        code, out = self.run_cli(["db", "build"])
+        self.assertEqual(code, 0)
+        self.assertIn("generic_*.json がありません", out)
+        code, out = self.run_cli(["rank", "Q"])
+        self.assertEqual(code, 1)
+        self.assertIn("空です", out)
+
+    def test_top_must_be_positive(self):
+        self.run_cli(["db", "build"])
+        with self.assertRaises(SystemExit):
+            self.run_cli(["rank", "Q", "--top", "0"])
+
+    def test_query_file_errors(self):
+        self.run_cli(["db", "build"])
+        self.assertEqual(self.run_cli(["rank", "--query-file", "nai.txt"])[0], 1)
+        f = Path(self.tmp.name) / "sjis.txt"
+        f.write_bytes("研究課題".encode("cp932"))
+        code, out = self.run_cli(["rank", "--query-file", str(f)])
+        self.assertEqual(code, 1)
+        self.assertIn("UTF-8", out)
+
+    def test_long_query_warning_hook(self):
+        self.run_cli(["db", "build"])
+        seen = []
+        self.fake.warn_if_long = seen.append
+        self.run_cli(["rank", "Q"])
+        self.assertEqual(seen, ["Q"])
+
+
+class MainDispatchTest(unittest.TestCase):
+    def test_db_and_rank_go_to_search_cli(self):
+        from unittest import mock
+        from confprog import __main__ as entry
+        with mock.patch("confprog.search_cli.main", return_value=7) as m:
+            self.assertEqual(entry.main(["db", "build"]), 7)
+            self.assertEqual(entry.main(["rank", "Q"]), 7)
+        self.assertEqual(m.call_count, 2)
+
+    def test_conference_command_still_parsed(self):
+        from confprog import __main__ as entry
+        with self.assertRaises(SystemExit) as cm, redirect_stdout(io.StringIO()):
+            entry.main(["miru", "--help"])
+        self.assertEqual(cm.exception.code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -103,12 +103,14 @@ def build_records(payloads: list[dict]) -> tuple[list[dict], list[str]]:
 def build_db(out_dir: Path = DEFAULT_OUT_DIR, db_path: Path = DEFAULT_DB_PATH) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
     by_event: dict[str, tuple[Path, dict]] = {}
-    for f in sorted(out_dir.glob("generic_*.json")):
-        if f.name.endswith("_eval.json"):
-            continue
+    files = [f for f in sorted(out_dir.glob("generic_*.json")) if not f.name.endswith("_eval.json")]
+    if not files:
+        warnings.append(f"{out_dir} に generic_*.json がありません(リポジトリ直下で実行しているか確認してください)")
+    for f in files:
         payload = json.loads(f.read_text(encoding="utf-8"))
         items = payload.get("presentations") or []
-        event = (items[0].get("event") if items else None) or f.stem
+        # build_records と同じ決め方にする
+        event = (items[0].get("event") if items else None) or payload.get("conference") or f.stem
         if event in by_event:
             warnings.append(f"{event}: 抽出結果が複数あります({by_event[event][0].name} と {f.name})。{f.name} を使います")
         by_event[event] = (f, payload)

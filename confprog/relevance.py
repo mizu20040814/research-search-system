@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,8 @@ def method_name(model: str, with_session: bool) -> str:
 
 
 def _cache_paths(cache_dir: Path, model: str, with_session: bool) -> tuple[Path, Path]:
-    stem = model.replace("/", "__") + ("__title+session" if with_session else "__title")
+    # ローカルのパス(C:\\models\\e5 など)を渡されてもファイル名として使える文字にする
+    stem = re.sub(r'[\\/:*?"<>|]', "__", model) + ("__title+session" if with_session else "__title")
     return cache_dir / f"{stem}.npy", cache_dir / f"{stem}.meta.json"
 
 
@@ -93,10 +95,12 @@ def load_sentence_transformer(model: str) -> EmbedFn:
     st = SentenceTransformer(model, device="cpu")
 
     def embed(texts: list[str]) -> np.ndarray:
-        if len(texts) == 1:
-            n = len(st.tokenizer(texts[0])["input_ids"])
-            if n > st.max_seq_length:
-                print(f"課題文が長いので先頭 {st.max_seq_length} トークンだけを使います({n} トークン)", file=sys.stderr)
         return st.encode(texts, normalize_embeddings=True, show_progress_bar=len(texts) > 1)
 
+    def warn_if_long(query: str) -> None:
+        n = len(st.tokenizer(query)["input_ids"])
+        if n > st.max_seq_length:
+            print(f"課題文が長いので先頭 {st.max_seq_length} トークンだけを使います({n} トークン)", file=sys.stderr)
+
+    embed.warn_if_long = warn_if_long  # type: ignore[attr-defined]
     return embed

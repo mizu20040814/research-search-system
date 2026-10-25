@@ -74,9 +74,10 @@ class RelevanceTest(unittest.TestCase):
         self.assertEqual(len(rank("Q", self.recs, self.build(), E5, self.embed, top=1)), 1)
 
     def test_cache_reused(self):
-        self.build()
-        self.build()
+        first = self.build()
+        second = self.build()
         self.assertEqual(len(self.embed.calls), 1)
+        np.testing.assert_array_equal(first, second)
 
     def test_cache_rebuilt_when_hash_changes(self):
         self.build(digest="h1")
