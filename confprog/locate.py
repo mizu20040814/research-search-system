@@ -67,16 +67,18 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                 cache[key] = (html, judge_list(html), "")
         return cache[key]
 
-    def find_hub(html: str, url: str, depth: int) -> tuple[str, list[str]] | str | None:
-        """リンク先が発表一覧なら (形, URL のリスト) を返す。上限で判定できなければ "limit"。"""
+    def find_hub(html: str, url: str, depth: int) -> list[tuple[str, list[str]]] | str | None:
+        """リンク先が発表一覧のまとまりを全部 (形, URL のリスト) で返す(口頭とポスターのように複数ありうる)。
+        1つも確かめられないうちに上限に達したら "limit"。"""
         groups = [g for g in group_by_shape(collect_links(html, url, top_url, positive_only=False))
                   if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
+        hubs: list[tuple[str, list[str]]] = []
         for shape, links in groups:
             ok = True
             for link in links[:HUB_SAMPLES]:
                 key = url_key(link.url)
                 if budget["normal"] >= max_pages and key not in cache:
-                    return "limit"
+                    return hubs or "limit"
                 h, v, err = open_page(link.url, "normal")
                 if v is not None and v.is_list:
                     continue
@@ -88,8 +90,8 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                                         v.title_count if v else 0, f"試し開き: {err or v.reason}"))
                 break
             if ok:
-                return shape, [l.url for l in links]
-        return None
+                hubs.append((shape, [l.url for l in links]))
+        return hubs or None
 
     found: list[tuple[str, int, float, ListVerdict]] = []
 
@@ -112,12 +114,26 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
                 visits.append(Visit(m, depth, 0.0, "none", mv.title_count, mv.reason))
 
     queue: list[tuple[float, int, str, int]] = [(0.0, 0, top_url, 0)]
+    expanded: dict[str, tuple[str, int]] = {}  # 一覧でなかったページの HTML と、たどった深さ
+
+    def push_links(html: str, url: str, depth: int, order: int) -> int:
+        for link in collect_links(html, url, top_url)[:TOP_K]:
+            k = url_key(link.url)
+            if k not in seen or (k in expanded and depth + 1 < expanded[k][1]):
+                heapq.heappush(queue, (-link.score, order, link.url, depth + 1))
+                order += 1
+        return order
+
     order = 1
     while queue:
         neg, _, url, depth = heapq.heappop(queue)
         score = -neg + 0.0  # -0.0 を出さない
         key = url_key(url)
         if key in seen:
+            # 深い経路で先に開いた「一覧でない」ページに浅い経路で来たら、リンクをたどり直す(取得はしない)
+            if key in expanded and depth < expanded[key][1] and depth < max_depth:
+                expanded[key] = (expanded[key][0], depth)
+                order = push_links(expanded[key][0], url, depth, order)
             continue
         if budget["normal"] >= max_pages and key not in cache:
             visits.append(Visit(url, depth, score, "none", 0,
@@ -136,20 +152,20 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
             if hub is None:
                 found.append((url, depth, score, v))
                 continue
-            shape, members = hub
-            if shape == url_shape(url):
+            shapes = [shape for shape, _ in hub]
+            if url_shape(url) in shapes:
                 # 一覧どうしが互いにリンクしている(分野別ページなど)。自分も一覧の1つ
                 found.append((url, depth, score, v))
             else:
-                visits.append(Visit(url, depth, score, "hub", v.title_count, f"{shape} の {HUB_SAMPLES} 件が一覧"))
-            adopt_members(members, depth)
+                visits.append(Visit(url, depth, score, "hub", v.title_count,
+                                    f"{', '.join(shapes)} の {HUB_SAMPLES} 件が一覧"))
+            for _, members in hub:
+                adopt_members(members, depth)
             continue
         visits.append(Visit(url, depth, score, "none", v.title_count, v.reason))
+        expanded[key] = (html, depth)
         if depth < max_depth:
-            for link in collect_links(html, url, top_url)[:TOP_K]:
-                if url_key(link.url) not in seen:
-                    heapq.heappush(queue, (-link.score, order, link.url, depth + 1))
-                    order += 1
+            order = push_links(html, url, depth, order)
 
     pages: list[str] = []
     kept: list[set[str]] = []

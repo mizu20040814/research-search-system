@@ -106,7 +106,7 @@ def collect_links(html: str, page_url: str, top_url: str, *, positive_only: bool
 def url_shape(url: str) -> str:
     """パスの最後の部分を * にした形(クエリは落とす)。同じ形のリンクを1つのまとまりとみなす。"""
     p = urlparse(url)
-    head = p.path.rsplit("/", 1)[0]
+    head = p.path.rstrip("/").rsplit("/", 1)[0]  # /session/a/ も /session/a と同じ形にする
     return f"{p.scheme}://{p.netloc}{head}/*"
 
 

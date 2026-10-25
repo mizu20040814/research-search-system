@@ -157,6 +157,33 @@ class ReviewFixTest(unittest.TestCase):
         self.assertEqual(calls, [top_noslash, TOP + "program"])
 
 
+    def test_shallower_path_reexpanded(self):
+        # 深い経路で先に開いたページでも、浅い経路で来たらリンクをたどる(Codex 指摘)
+        a, b, lst = TOP + "a.html", TOP + "b.html", TOP + "list.html"
+        site = {TOP: top_with((a, "大会"), (b, "プログラム 日程")),
+                b: top_with((a, "プログラム 日程 セッション")),
+                a: top_with((lst, "プログラム")), lst: LIST_A}
+        r = locate(TOP, get=fake(site), max_depth=2)
+        self.assertEqual(r.pages, [lst])
+
+    def test_hub_with_two_groups(self):
+        # ハブが口頭とポスターのように別の形の一覧群にリンクしていれば両方返す(Codex 指摘)
+        oral = [f"{TOP}oral/s{i}" for i in (1, 2, 3)]
+        poster = [f"{TOP}poster/s{i}" for i in (1, 2, 3)]
+        hub = list_page("口頭", hrefs=oral).replace("</body>", "".join(f'<a href="{u}">ポスター{i}</a>' for i, u in enumerate(poster)) + "</body>")
+        site = {TOP: hub, **{u: list_page(f"口頭{i}") for i, u in enumerate(oral)},
+                **{u: list_page(f"ポスター{i}") for i, u in enumerate(poster)}}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(sorted(r.pages), sorted(oral + poster))
+
+    def test_hub_with_directory_urls(self):
+        # /session/a/ のようなディレクトリ形式のリンクも1つのまとまりにする(Codex 指摘)
+        dirs = [f"{TOP}session/{k}/" for k in "abc"]
+        site = {TOP: list_page("セッション", hrefs=dirs), **{u: list_page(f"分科{i}") for i, u in enumerate(dirs)}}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(r.pages, dirs)
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
