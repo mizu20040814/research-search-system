@@ -57,8 +57,9 @@ def score_link(text: str, url: str, top_url: str) -> float:
     return score
 
 
-def collect_links(html: str, page_url: str, top_url: str) -> list[Link]:
-    """同じホストの HTML ページへのリンクを集め、点数が正のものを点数の高い順に返す。"""
+def collect_links(html: str, page_url: str, top_url: str, *, positive_only: bool = True) -> list[Link]:
+    """同じホストの HTML ページへのリンクを集め、点数の高い順に返す。
+    positive_only なら点数が正のものだけ(候補リンク)。ハブの判定では False にして全部使う。"""
     root = parse(html)
     base = page_url
     for n in root.iter():
@@ -87,7 +88,8 @@ def collect_links(html: str, page_url: str, top_url: str) -> list[Link]:
     links = [Link(u, " / ".join(t), 0.0) for u, t in texts.items()]
     for link in links:
         link.score = score_link(link.text, link.url, top_url)
-    links = [l for l in links if l.score > 0]
+    if positive_only:
+        links = [l for l in links if l.score > 0]
     links.sort(key=lambda l: -l.score)  # 同点は文書順(安定ソート)
     return links
 

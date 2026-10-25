@@ -39,6 +39,12 @@ class CollectTest(unittest.TestCase):
         urls = [l.url for l in collect_links(html, TOP + "news/", TOP)]
         self.assertEqual(urls, ["https://example.org/conf2026/sub/program.html"])
 
+    def test_all_links_for_hub_check(self):
+        # ハブの判定ではリンクの点数を問わず、同じホストのページを全部使う
+        html = '<a href="/ev/s/a1">基礎理論</a><a href="/ev/s/b2">応用</a>'
+        self.assertEqual(collect_links(html, TOP, TOP), [])
+        self.assertEqual(len(collect_links(html, TOP, TOP, positive_only=False)), 2)
+
     def test_sorted_by_score(self):
         html = '<a href="/x/timetable">日程</a><a href="/conf2026/program">プログラム</a>'
         urls = [l.url for l in collect_links(html, TOP, TOP)]
