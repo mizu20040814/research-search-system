@@ -55,6 +55,23 @@ class SearchCliTest(unittest.TestCase):
         self.assertIn("ほか", out)
         self.assertEqual(len(list(self.paths["runs_dir"].glob("*.json"))), 1)
 
+    def test_paths_can_be_given_on_command_line(self):
+        root = Path(self.tmp.name)
+        other_out = root / "out2"
+        other_out.mkdir()
+        (other_out / "generic_x.json").write_text(json.dumps(payload(["別の発表"]), ensure_ascii=False),
+                                                  encoding="utf-8")
+        db = root / "exp" / "db.jsonl"
+        self.assertEqual(self.run_cli(["db", "build", "--out-dir", str(other_out), "--db", str(db)])[0], 0)
+        self.assertEqual(len(db.read_text(encoding="utf-8").splitlines()), 1)
+        runs = root / "exp" / "runs"
+        code, out = self.run_cli(["rank", "Q", "--db", str(db), "--cache-dir", str(root / "exp" / "emb"),
+                                  "--runs-dir", str(runs)])
+        self.assertEqual(code, 0)
+        self.assertIn("別の発表", out)
+        self.assertEqual(len(list(runs.glob("*.json"))), 1)
+        self.assertEqual(len(list((root / "exp" / "emb").glob("*.npy"))), 1)
+
     def test_rank_without_db_fails(self):
         code, out = self.run_cli(["rank", "Q"])
         self.assertEqual(code, 1)

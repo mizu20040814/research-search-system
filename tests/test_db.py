@@ -92,6 +92,22 @@ class BuildDbTest(unittest.TestCase):
             self.assertEqual(sum("EV2026" in w for w in warns), 1)
             self.assertEqual(len(load_db(db)), 2)
 
+    def test_build_db_merges_pages_of_same_event(self):
+        # IPSJ の program1・program3 のように、同じ大会の別ページは結合する
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            out.mkdir()
+            p1 = payload([{"title": "A"}, {"title": "共通"}])
+            p1["source_url"] = "https://example.org/program1.html"
+            p3 = payload([{"title": "B"}, {"title": "共通"}])
+            p3["source_url"] = "https://example.org/program3.html"
+            for name, p in [("generic_ev_p1.json", p1), ("generic_ev_p3.json", p3)]:
+                (out / name).write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
+            recs, warns = build_db(out, Path(d) / "db.jsonl")
+            self.assertEqual(sorted(r["title"] for r in recs), ["A", "B", "共通"])
+            self.assertEqual(next(r for r in recs if r["title"] == "共通")["slots"], 2)
+            self.assertEqual(warns, [])
+
 
 if __name__ == "__main__":
     unittest.main()

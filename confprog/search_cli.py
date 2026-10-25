@@ -43,16 +43,22 @@ def main(argv: list[str], embed_factory: Callable[[str], Callable] = _default_fa
     sub = ap.add_subparsers(dest="cmd", required=True)
     db = sub.add_parser("db", help="発表DBを作る")
     db.add_argument("action", choices=["build"])
+    db.add_argument("--out-dir", type=Path, default=out_dir, help=f"抽出結果のディレクトリ(既定: {out_dir})")
+    db.add_argument("--db", type=Path, default=db_path, help=f"発表DBの保存先(既定: {db_path})")
     rk = sub.add_parser("rank", help="研究課題の文章に関連する発表を並べる")
     rk.add_argument("query", nargs="?", default="", help="研究課題の文章")
     rk.add_argument("--query-file", type=Path, help="研究課題の文章を書いたファイル(UTF-8)")
     rk.add_argument("--top", type=_positive, default=20)
     rk.add_argument("--model", default=DEFAULT_MODEL)
     rk.add_argument("--with-session", action="store_true", help="タイトルにセッション名を足して埋め込む")
+    rk.add_argument("--db", type=Path, default=db_path, help=f"発表DB(既定: {db_path})")
+    rk.add_argument("--cache-dir", type=Path, default=cache_dir, help=f"埋め込みのキャッシュ(既定: {cache_dir})")
+    rk.add_argument("--runs-dir", type=Path, default=runs_dir, help=f"結果の保存先(既定: {runs_dir})")
     args = ap.parse_args(argv)
+    db_path = args.db
 
     if args.cmd == "db":
-        records, warnings = build_db(out_dir, db_path)
+        records, warnings = build_db(args.out_dir, db_path)
         counts = Counter((r["event"], r["kind"]) for r in records)
         for event in sorted({r["event"] for r in records}):
             print(f"{event}: 一般 {counts[(event, 'general')]} / 招待 {counts[(event, 'invited')]}"
@@ -95,13 +101,13 @@ def main(argv: list[str], embed_factory: Callable[[str], Callable] = _default_fa
         print(f"エラー: 発表DB {db_path} が空です。data/out に抽出結果を置いて db build し直してください", file=sys.stderr)
         return 1
     digest = db_hash(db_path)
-    emb = load_or_build_embeddings(records, digest, args.model, args.with_session, embed, cache_dir)
+    emb = load_or_build_embeddings(records, digest, args.model, args.with_session, embed, args.cache_dir)
     if hasattr(embed, "warn_if_long"):
         embed.warn_if_long(query)
     results = rank(query, records, emb, args.model, embed, args.top)
     for r in results:
         print(f"{r['rank']:>2}. {r['score']:.3f} [{r['event']}] {r['title']} / {_authors(r['authors'])}")
         print(f"    {r['session'] or ''}")
-    path = save_run(query, method_name(args.model, args.with_session), digest, args.top, results, runs_dir)
+    path = save_run(query, method_name(args.model, args.with_session), digest, args.top, results, args.runs_dir)
     print(f"保存先: {path}")
     return 0

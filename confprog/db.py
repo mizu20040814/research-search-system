@@ -102,7 +102,9 @@ def build_records(payloads: list[dict]) -> tuple[list[dict], list[str]]:
 
 def build_db(out_dir: Path = DEFAULT_OUT_DIR, db_path: Path = DEFAULT_DB_PATH) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
-    by_event: dict[str, tuple[Path, dict]] = {}
+    # 同じ大会でも別ページ(IPSJ の program1〜8 など)の抽出結果は結合する。
+    # 同じページを抽出し直したファイルが複数あるときだけ、ファイル名順で後のものを使う
+    by_page: dict[tuple[str, str], tuple[Path, dict]] = {}
     files = [f for f in sorted(out_dir.glob("generic_*.json")) if not f.name.endswith("_eval.json")]
     if not files:
         warnings.append(f"{out_dir} に generic_*.json がありません(リポジトリ直下で実行しているか確認してください)")
@@ -111,10 +113,12 @@ def build_db(out_dir: Path = DEFAULT_OUT_DIR, db_path: Path = DEFAULT_DB_PATH) -
         items = payload.get("presentations") or []
         # build_records と同じ決め方にする
         event = (items[0].get("event") if items else None) or payload.get("conference") or f.stem
-        if event in by_event:
-            warnings.append(f"{event}: 抽出結果が複数あります({by_event[event][0].name} と {f.name})。{f.name} を使います")
-        by_event[event] = (f, payload)
-    records, more = build_records([p for _, p in by_event.values()])
+        page = payload.get("source_url") or f.name
+        if (event, page) in by_page:
+            warnings.append(f"{event}: 同じページの抽出結果が複数あります({by_page[(event, page)][0].name} と {f.name})。"
+                            f"{f.name} を使います")
+        by_page[(event, page)] = (f, payload)
+    records, more = build_records([p for _, p in by_page.values()])
     warnings.extend(more)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with db_path.open("w", encoding="utf-8", newline="\n") as fh:
