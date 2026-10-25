@@ -57,6 +57,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     budget = {"normal": 0, "hub": 0}
     seen: set[str] = set()
     sampled: dict[str, Visit] = {}  # 試し開き・ハブのリンク先で一覧でなかったページの記録(通常の探索で開いたら置き換える)
+    claimed: set[str] = set()  # ハブのリンク先として採用が決まった URL
     bad_shapes: set[str] = set()  # 試し開きで一覧でなかった URL の形(詳細ページの形は2度試さない)
 
     def open_page(url: str, kind: str) -> tuple[str | None, ListVerdict | None, str]:
@@ -81,8 +82,10 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
     def find_hub(html: str, url: str, depth: int) -> list[tuple[str, list[str]]] | str | None:
         """リンク先が発表一覧のまとまりを全部 (形, URL のリスト) で返す(口頭とポスターのように複数ありうる)。
         1つも確かめられないうちに上限に達したら "limit"。"""
+        # 開いたページ(祖先や兄弟)へ戻るリンクだけのまとまりは、ハブの根拠にしない
         groups = [g for g in group_by_shape(links_of(html, url, positive_only=False))
-                  if len(g[1]) >= HUB_MIN_GROUP][:HUB_MAX_GROUPS]
+                  if len(g[1]) >= HUB_MIN_GROUP
+                  and any(url_key(l.url) not in seen | claimed for l in g[1])][:HUB_MAX_GROUPS]
         hubs: list[tuple[str, list[str]]] = []
         for shape, links in groups:
             if shape in bad_shapes:  # 成功は使い回さない(同じ形でもリンク先が一覧とは限らない)
@@ -141,6 +144,7 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
         return True
 
     def adopt_members(members: list[str], depth: int) -> None:
+        claimed.update(url_key(m) for m in members)  # これから開くリンク先。戻りリンクをハブの根拠にしないため
         for i, m in enumerate(members):
             key = url_key(m)
             if key in seen or key in sampled:

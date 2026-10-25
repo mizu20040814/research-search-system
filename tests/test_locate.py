@@ -304,6 +304,18 @@ class RealRunFixTest(unittest.TestCase):
         self.assertEqual(sorted(locate(top, get=fake(site)).pages), sorted([p25, p23]))
 
 
+class CycleTest(unittest.TestCase):
+    def test_links_back_to_ancestors_do_not_make_hub(self):
+        # セッション一覧が日別目次へ戻るリンクを持っていても、それだけでハブとみなして捨てない(Codex 指摘)
+        days = [f"{TOP}day/d{i}" for i in (1, 2, 3)]
+        sess = {d: [f"{TOP}s/d{i}-{k}" for k in (1, 2, 3)] for i, d in enumerate(days, 1)}
+        site = {TOP: list_page("日程", hrefs=days),
+                **{d: list_page(f"第{i}日", hrefs=sess[d]) for i, d in enumerate(days, 1)},
+                **{s_: list_page(f"分科{s_[-3:]}", hrefs=days) for d in days for s_ in sess[d]}}
+        r = locate(TOP, get=fake(site))
+        self.assertEqual(sorted(r.pages), sorted(s_ for d in days for s_ in sess[d]))
+
+
 class MainTest(unittest.TestCase):
     def test_single_url_writes_json(self):
         with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
