@@ -2,6 +2,8 @@
   python -m confprog miru --year 2026                 # 取得して data/out/miru2026.json に保存
   python -m confprog miru --html data/raw/xxx.html    # 保存済み HTML から抽出(通信しない)
   python -m confprog miru --year 2026 --refresh       # キャッシュを無視して取り直す
+  python -m confprog db build                         # 抽出結果から発表DB(data/db/presentations.jsonl)を作る
+  python -m confprog rank "研究課題の文章"             # 関連する発表を並べる(詳しくは search_cli.py)
 """
 from __future__ import annotations
 
@@ -17,6 +19,14 @@ from .fetch import FetchError, fetch
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    # Windows のコンソール(cp932)で表示できない文字があっても落ちないようにする
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    if argv and argv[0] in ("db", "rank"):
+        from .search_cli import main as search_main
+        return search_main(argv)
     ap = argparse.ArgumentParser(prog="confprog", description="学会プログラムを共通形式の JSON にする")
     ap.add_argument("conference", choices=sorted(REGISTRY), help="対象の学会")
     ap.add_argument("--year", type=int, default=2026)
@@ -25,10 +35,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, help="出力先(既定: data/out/<学会><年>.json)")
     ap.add_argument("--refresh", action="store_true", help="キャッシュを使わずに取り直す")
     args = ap.parse_args(argv)
-    # Windows のコンソール(cp932)で表示できない文字があっても落ちないようにする
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(errors="replace")
 
     module = REGISTRY[args.conference]
     url = args.url or module.DEFAULT_URL.format(year=args.year)

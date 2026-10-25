@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 data/rendered/
+# 発表DB・埋め込みのキャッシュ・ランキング結果も抽出結果から作り直せる派生物なのでコミットしない
+data/db/
+data/runs/
