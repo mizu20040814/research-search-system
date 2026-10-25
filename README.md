@@ -27,6 +27,19 @@ python -m confprog.evaluate data/out/generic_miru2026.json data/out/miru2026.jso
 
 本体の HTML は `fetch()`（robots.txt・7秒間隔・`data/raw/`）で取り、描画後の HTML は `data/rendered/` に保存します。
 
+## プログラムページの特定（大会トップURL → 発表一覧ページ）
+
+```bash
+# 1大会：見つけたページと、たどった記録（各ページの点数・判定・理由）を表示 → data/out/locate/single.json
+python -m confprog.locate https://www.anlp.jp/nlp2026/
+# 学会リスト（eval/conferences.csv の 学会,年,トップURL,メモ）を全部 → data/out/locate/<学会><年>.json と summary.csv
+python -m confprog.locate --list eval/conferences.csv
+```
+
+リンクを「プログラム」などの一般的な語で点数づけして2段までたどり、抽出器が発表一覧と判定したページを返します。
+リンク先も発表一覧のページ（目次・セッション一覧）は「ハブ」とみなし、リンク先のほうを返します。
+設計は Vault の `01_Research/卒論テーマ_関連資料/プログラムページ特定_設計_2026-10-25.md`。
+
 ## 学会別抽出器（正解データ作りの補助。Python 3.10 以上、追加ライブラリ不要）
 
 ```powershell
@@ -72,6 +85,9 @@ confprog/
   schema.py            共通スキーマ（Presentation）
   fetch.py             取得（robots.txt 確認・7秒間隔・キャッシュ・UA 明示）
   authors.py           著者文字列 → 氏名リスト／所属リスト
+  generic.py           汎用の抽出（構造推定）と発表一覧かどうかの判定
+  links.py             ページ特定：リンクの収集と点数づけ
+  locate.py            ページ特定：トップURLから発表一覧ページをたどる
   extractors/miru.py   MIRU の抽出器
   __main__.py          コマンド
 tests/                 テスト（架空データの HTML で動作確認）

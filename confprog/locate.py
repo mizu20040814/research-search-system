@@ -141,3 +141,73 @@ def locate(top_url: str, *, get: Callable[[str], str] = render, max_depth: int =
         pages.append(url)
         kept.append(titles)
     return LocateResult(top_url, pages, visits)
+
+
+def _print(name: str, r: LocateResult) -> None:
+    print(f"{name}: 発表一覧 {len(r.pages)} ページ")
+    for p in r.pages:
+        print(f"  - {p}")
+    for v in r.visits:
+        print(f"    {v.depth} {v.verdict:9s} {v.link_score:4.1f} {v.url}  {v.reason}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import csv
+    import json
+    import sys
+    from pathlib import Path
+
+    ap = argparse.ArgumentParser(prog="confprog.locate", description="大会トップURLから発表一覧ページを特定する")
+    ap.add_argument("url", nargs="?", help="大会トップURL")
+    ap.add_argument("--out", type=Path, help="1件のときの保存先(既定 data/out/locate/single.json)")
+    ap.add_argument("--list", type=Path, help="学会リストの CSV(列: 学会,年,トップURL,メモ)")
+    ap.add_argument("--only", nargs="*", help="学会名で絞る")
+    ap.add_argument("--out-dir", type=Path, default=Path("data/out/locate"), help="--list のときの保存先")
+    args = ap.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    if not args.url and not args.list:
+        ap.error("URL か --list のどちらかが必要です")
+
+    if args.url:
+        r = locate(args.url, get=render)
+        _print(args.url, r)
+        out = args.out or args.out_dir / "single.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(r.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"保存先: {out}")
+        return 0
+
+    with args.list.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    if args.only:
+        rows = [row for row in rows if row["学会"] in args.only]
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summary = []
+    for i, row in enumerate(rows, 1):
+        name, year, url = row["学会"], row["年"], row["トップURL"]
+        print(f"[{i}/{len(rows)}] {name} {year} {url}", flush=True)
+        try:
+            r = locate(url, get=render)
+        except Exception as e:  # 1大会が失敗しても残りは続ける
+            print(f"    エラー: {type(e).__name__}: {e}")
+            summary.append([name, year, 0, 0, f"{type(e).__name__}: {e}"[:200]])
+            continue
+        _print(name, r)
+        (args.out_dir / f"{name.lower()}{year}.json").write_text(
+            json.dumps(r.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        summary.append([name, year, len(r.pages), len(r.visits), row.get("メモ", "")])
+    with (args.out_dir / "summary.csv").open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["学会", "年", "ページ数", "記録数", "メモ"])
+        w.writerows(summary)
+    print(f"一覧: {args.out_dir / 'summary.csv'}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

@@ -1,8 +1,12 @@
 """ページ特定(locate.py)のテスト。取得は偽の関数に差し替え、小さなサイトをたどらせる。"""
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from confprog.fetch import FetchError
-from confprog.locate import locate
+from confprog.locate import locate, main
 
 TOP = "https://example.org/conf2026/"
 S1, S2, S3 = (f"{TOP}session/s{i}" for i in (1, 2, 3))
@@ -111,6 +115,27 @@ class LocateTest(unittest.TestCase):
         r = locate(TOP, get=fake(HUB_SAMPLE_ERROR_SITE))
         self.assertEqual(r.pages, [TOP])
         self.assertIn("error", [v.verdict for v in r.visits if v.url == S1])
+
+
+class MainTest(unittest.TestCase):
+    def test_single_url_writes_json(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
+            out = Path(d) / "r.json"
+            self.assertEqual(main([TOP, "--out", str(out)]), 0)
+            data = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(data["pages"], [TOP])
+            self.assertEqual(data["visits"][0]["verdict"], "list")
+
+    def test_list_continues_after_failure(self):
+        other = "https://other.example.org/"
+        with tempfile.TemporaryDirectory() as d, mock.patch("confprog.locate.render", fake({TOP: LIST_A})):
+            csv_path = Path(d) / "conferences.csv"
+            csv_path.write_text(f"学会,年,トップURL,メモ\nBAD,2026,{other},\nOK,2026,{TOP},\n", encoding="utf-8")
+            self.assertEqual(main(["--list", str(csv_path), "--out-dir", d]), 0)
+            self.assertEqual(json.loads((Path(d) / "ok2026.json").read_text(encoding="utf-8"))["pages"], [TOP])
+            summary = (Path(d) / "summary.csv").read_text(encoding="utf-8-sig").splitlines()
+            self.assertEqual(len(summary), 3)
+            self.assertTrue(summary[1].startswith("BAD,2026,0,"))
 
 
 if __name__ == "__main__":
