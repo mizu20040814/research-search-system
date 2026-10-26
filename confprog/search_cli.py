@@ -125,7 +125,7 @@ def _demo(args, embed_factory: Callable[[str], Callable], stdin: TextIO) -> int:
                 embed.warn_if_long(query)
             results = rank(query, records, emb, args.model, embed, max(top, BREAKDOWN_TOP))
             _print_results(results[:top])
-            print(breakdown(results))
+            print(breakdown(results[:BREAKDOWN_TOP]))
             save_run(query, method_name(args.model, args.with_session), digest, top, results[:top], args.runs_dir)
     except KeyboardInterrupt:
         print()

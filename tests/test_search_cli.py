@@ -188,6 +188,14 @@ class DemoTest(unittest.TestCase):
         self.assertNotIn(" 2. ", out)
         self.assertIn("上位3件の内訳：", out)
 
+    def test_breakdown_stays_at_breakdown_top(self):
+        from unittest import mock
+        self.run_cli(["db", "build"])
+        with mock.patch.object(search_cli, "BREAKDOWN_TOP", 2):
+            code, out = self.run_demo(":top 3\n深層\n\n")
+        self.assertIn(" 3. ", out)
+        self.assertIn("上位2件の内訳：", out)
+
     def test_demo_bad_top(self):
         self.run_cli(["db", "build"])
         code, out = self.run_demo(":top abc\n:top 0\n:q\n")
