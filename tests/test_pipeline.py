@@ -146,6 +146,11 @@ class BuildOneTest(unittest.TestCase):
         self.assertEqual(r.status, "失敗（前回分なし）")
         self.assertIn("トップURL", r.reason)
 
+    def test_missing_url_keeps_previous(self):
+        write_prev(self.out, "ev2026", 1)
+        r = pipeline.build_one({"学会": "EV", "年": "2026", "トップURL": ""}, self.out, **Fakes({}, {}).fns())
+        self.assertEqual((r.status, r.year), ("前回分を使用", 2026))
+
     def test_swap_failure_restores_previous(self):
         from unittest import mock
         write_prev(self.out, "ev2026", 1)

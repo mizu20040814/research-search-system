@@ -76,11 +76,15 @@ def build_one(row: dict, out_dir: Path, *, locate_fn: Callable[[str, int], Locat
               render_fn: Callable[[str], str], extract_fn: Callable) -> ConfResult:
     # 列が足りない行は DictReader が None を入れるので、空文字として扱う
     name, ystr, top = ((row.get(k) or "").strip() for k in ("学会", "年", "トップURL"))
-    if not name or not top:
-        return _failed(name or "?", None, f"{name.lower()}{ystr}", out_dir, "学会名かトップURLが空です")
     try:
-        year = int(ystr)
+        year: int | None = int(ystr)
     except ValueError:
+        year = None
+    if not name or not top:
+        # 学会名と年が分かれば前回分を探す(DB に残る前回分と一覧を食い違わせない)
+        key = conf_key(name, year) if name and year is not None else f"{name.lower()}{ystr}"
+        return _failed(name or "?", year if name else None, key, out_dir, "学会名かトップURLが空です")
+    if year is None:
         return _failed(name, None, f"{name.lower()}{ystr}", out_dir, f"年が数字ではありません: {ystr!r}")
     key = conf_key(name, year)
     tmp = out_dir / "_new" / key
