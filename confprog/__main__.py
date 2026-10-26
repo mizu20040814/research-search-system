@@ -4,6 +4,7 @@
   python -m confprog miru --year 2026 --refresh       # キャッシュを無視して取り直す
   python -m confprog build                            # 学会リスト(eval/conferences.csv)から発表DBまで一括で作る
   python -m confprog db build                         # 抽出結果から発表DB(data/db/presentations.jsonl)を作る
+  python -m confprog demo                             # 研究課題文を続けて入れて関連する発表を見る(対話式)
   python -m confprog rank "研究課題の文章"             # 関連する発表を並べる(詳しくは search_cli.py)
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "build":
         from .pipeline import main as build_main
         return build_main(argv)
-    if argv and argv[0] in ("db", "rank"):
+    if argv and argv[0] in ("db", "rank", "demo"):
         from .search_cli import main as search_main
         return search_main(argv)
     ap = argparse.ArgumentParser(prog="confprog", description="学会プログラムを共通形式の JSON にする")
