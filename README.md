@@ -5,6 +5,18 @@
 > 2026-10-07：`confprog/extractors/` の学会別抽出器（MIRU・ANLP）は**正解データ作成の補助と開発用**です。
 > 研究の本体は、学会ごとの個別実装なしにプログラムを抽出する汎用手法 `confprog/generic.py`（構造推定）。方針は `CLAUDE.md`。
 
+## 導入
+
+```powershell
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+- Python 3.10 以上。学会別抽出器と評価は標準ライブラリだけで動きます
+- playwright は汎用抽出の描画に使います。入れたあとに `python -m playwright install chromium` を実行します
+- numpy・sentence-transformers は関連度（`rank`・`demo`）で使います。モデル `intfloat/multilingual-e5-base`（約1.1GB）は初回に自動で取得されます
+- `requirements.txt` は Windows の pip が文字コード（cp932）で読めるよう、英数字だけで書いています
+
 ## 汎用の抽出（構造推定・基準手法）
 
 どの学会にも同じ方法をかけます。学会ごとのタグ名・クラス名は持たず、描画後の HTML で繰り返し現れる欄から
