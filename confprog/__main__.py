@@ -2,6 +2,7 @@
   python -m confprog miru --year 2026                 # 取得して data/out/miru2026.json に保存
   python -m confprog miru --html data/raw/xxx.html    # 保存済み HTML から抽出(通信しない)
   python -m confprog miru --year 2026 --refresh       # キャッシュを無視して取り直す
+  python -m confprog build                            # 学会リスト(eval/conferences.csv)から発表DBまで一括で作る
   python -m confprog db build                         # 抽出結果から発表DB(data/db/presentations.jsonl)を作る
   python -m confprog rank "研究課題の文章"             # 関連する発表を並べる(詳しくは search_cli.py)
 """
@@ -24,6 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
+    if argv and argv[0] == "build":
+        from .pipeline import main as build_main
+        return build_main(argv)
     if argv and argv[0] in ("db", "rank"):
         from .search_cli import main as search_main
         return search_main(argv)

@@ -15,6 +15,7 @@ import csv
 import json
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -128,3 +129,90 @@ def build_one(row: dict, out_dir: Path, *, locate_fn: Callable[[str, int], Locat
             (out_dir / "_new").rmdir()
         except OSError:
             pass
+
+
+SUMMARY_COLUMNS = ["学会", "年", "状態", "見つけたページ数", "抽出できたページ数", "発表件数", "理由"]
+_FILE_KEY = re.compile(r"generic_(.+)_\d+\.json")
+
+
+def _default_locate(url: str, year: int) -> LocateResult:
+    from .locate import locate
+    from .render import render
+    return locate(url, get=render, year=year)
+
+
+def _default_render(url: str) -> str:
+    from .render import render
+    return render(url)
+
+
+def _default_extract(html: str, conference: str, year: int, url: str):
+    from .generic import extract
+    return extract(html, conference, year, url)
+
+
+def write_summary(results: list[ConfResult], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(SUMMARY_COLUMNS)
+        for r in results:
+            w.writerow([r.conference, r.year if r.year is not None else "", r.status, r.pages_found,
+                        r.pages_extracted, r.count, r.reason])
+
+
+def run_build(rows: list[dict], out_dir: Path, db_path: Path, *,
+              locate_fn: Callable[[str, int], LocateResult] = _default_locate,
+              render_fn: Callable[[str], str] = _default_render,
+              extract_fn: Callable = _default_extract) -> tuple[list[ConfResult], int]:
+    """全学会を流して発表DBを作る。戻り値は(summary に出す全学会の結果, DB の件数)。"""
+    from .db import build_db
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    for i, row in enumerate(rows, 1):
+        print(f"[{i}/{len(rows)}] {row['学会']} {row.get('年', '')} {row['トップURL']}", flush=True)
+        r = build_one(row, out_dir, locate_fn=locate_fn, render_fn=render_fn, extract_fn=extract_fn)
+        print(f"    {r.status} ページ {r.pages_extracted}/{r.pages_found} 発表 {r.count}"
+              + (f"  ({r.reason[:200]})" if r.reason else ""), flush=True)
+        results.append(r)
+    # 今回流していない学会も、前回分として一覧に出す(--only で一覧が上書きされて消えないように)
+    ran = {r.key for r in results}
+    keys = sorted({m.group(1) for p in out_dir.glob("generic_*.json") if (m := _FILE_KEY.fullmatch(p.name))})
+    results += [prev for k in keys if k not in ran and (prev := previous_result(k, out_dir))]
+    records, warnings = build_db(out_dir, db_path)
+    for w in warnings:
+        print(f"警告: {w}", file=sys.stderr)
+    write_summary(results, out_dir / "summary.csv")
+    return results, len(records)
+
+
+def main(argv: list[str] | None = None, **fns) -> int:
+    import argparse
+
+    from .db import DEFAULT_DB_PATH
+
+    argv = sys.argv[1:] if argv is None else argv
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    ap = argparse.ArgumentParser(prog="confprog build", description="学会リストから発表DBまでを一括で作る")
+    ap.add_argument("cmd", choices=["build"])
+    ap.add_argument("--list", type=Path, default=Path("eval/conferences.csv"),
+                    help="学会リストの CSV(列: 学会,年,トップURL,メモ。既定: eval/conferences.csv)")
+    ap.add_argument("--only", nargs="*", help="学会名で絞る(ほかの学会は前回分を使う)")
+    ap.add_argument("--out-dir", type=Path, default=Path("data/out/batch"), help="抽出結果の置き場(既定: data/out/batch)")
+    ap.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help=f"発表DBの保存先(既定: {DEFAULT_DB_PATH})")
+    args = ap.parse_args(argv)
+    try:
+        with args.list.open(encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+    except FileNotFoundError:
+        print(f"エラー: 学会リスト {args.list} が見つかりません", file=sys.stderr)
+        return 1
+    if args.only:
+        rows = [r for r in rows if r["学会"] in args.only]
+    results, n = run_build(rows, args.out_dir, args.db, **fns)
+    print(f"発表DB: {n} 件 → {args.db}")
+    print(f"一覧: {args.out_dir / 'summary.csv'}")
+    return 0 if n else 1

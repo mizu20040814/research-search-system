@@ -1,6 +1,9 @@
+import csv
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from confprog import pipeline
@@ -141,6 +144,76 @@ class BuildOneTest(unittest.TestCase):
         pipeline.build_one(row(), self.out, **Fakes({"top": ["p1"]}, {"p1": 1}).fns())
         pipeline.build_one(row(), self.out, **Fakes({"top": RuntimeError("x")}, {}).fns())
         self.assertFalse((self.out / "_new" / "ev2026").exists())
+
+
+class RunBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.out, self.db = root / "batch", root / "db" / "p.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def summary(self):
+        with (self.out / "summary.csv").open(encoding="utf-8-sig", newline="") as f:
+            return list(csv.DictReader(f))
+
+    def db_titles(self):
+        return [json.loads(line)["title"] for line in self.db.read_text(encoding="utf-8").splitlines()]
+
+    def test_run_build_makes_db_and_summary(self):
+        f = Fakes({"t1": ["a"], "t2": ["b"]}, {"a": 2, "b": 1})
+        results, n = pipeline.run_build([row("EV", url="t1"), row("FW", url="t2")], self.out, self.db, **f.fns())
+        self.assertEqual(n, 3)
+        self.assertEqual(len(self.db_titles()), 3)
+        raw = (self.out / "summary.csv").read_bytes()
+        self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(raw.decode("utf-8-sig").splitlines()[0], "学会,年,状態,見つけたページ数,抽出できたページ数,発表件数,理由")
+        self.assertEqual([(r["学会"], r["状態"]) for r in self.summary()], [("EV", "成功"), ("FW", "成功")])
+
+    def test_one_failure_does_not_stop_others(self):
+        f = Fakes({"t1": RuntimeError("down"), "t2": ["b"]}, {"b": 1})
+        results, n = pipeline.run_build([row("EV", url="t1"), row("FW", url="t2")], self.out, self.db, **f.fns())
+        self.assertEqual([r.status for r in results], ["失敗（前回分なし）", "成功"])
+        self.assertEqual(n, 1)
+
+    def test_only_keeps_others_in_db_and_summary(self):
+        f = Fakes({"t1": ["a"], "t2": ["b"]}, {"a": 2, "b": 1})
+        pipeline.run_build([row("EV", url="t1"), row("FW", url="t2")], self.out, self.db, **f.fns())
+        results, n = pipeline.run_build([row("FW", url="t2")], self.out, self.db, **f.fns())
+        self.assertEqual(n, 3)
+        self.assertEqual([(r["学会"], r["状態"]) for r in self.summary()], [("FW", "成功"), ("EV", "前回分")])
+
+    def test_main_cli(self):
+        lst = Path(self.tmp.name) / "list.csv"
+        lst.write_text("学会,年,トップURL,メモ\nEV,2026,t1,x\nFW,2026,t2,y\n", encoding="utf-8-sig")
+        f = Fakes({"t1": ["a"], "t2": ["b"]}, {"a": 2, "b": 1})
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(out):
+            code = pipeline.main(["build", "--list", str(lst), "--only", "FW", "--out-dir", str(self.out),
+                                  "--db", str(self.db)], **f.fns())
+        self.assertEqual(code, 0)
+        self.assertIn("FW 2026", out.getvalue())
+        self.assertNotIn("EV 2026", out.getvalue())
+        self.assertIn("発表DB: 1 件", out.getvalue())
+
+    def test_main_returns_1_when_db_empty(self):
+        lst = Path(self.tmp.name) / "list.csv"
+        lst.write_text("学会,年,トップURL,メモ\nEV,2026,t1,x\n", encoding="utf-8-sig")
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(out):
+            code = pipeline.main(["build", "--list", str(lst), "--out-dir", str(self.out), "--db", str(self.db)],
+                                 **Fakes({"t1": []}, {}).fns())
+        self.assertEqual(code, 1)
+
+    def test_dunder_main_dispatches_build(self):
+        from confprog import __main__ as entry
+        out = io.StringIO()
+        with redirect_stdout(out), self.assertRaises(SystemExit) as cm:
+            entry.main(["build", "--help"])
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn("--only", out.getvalue())
 
 
 if __name__ == "__main__":
