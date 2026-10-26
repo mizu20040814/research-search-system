@@ -5,6 +5,18 @@
 > 2026-10-07：`confprog/extractors/` の学会別抽出器（MIRU・ANLP）は**正解データ作成の補助と開発用**です。
 > 研究の本体は、学会ごとの個別実装なしにプログラムを抽出する汎用手法 `confprog/generic.py`（構造推定）。方針は `CLAUDE.md`。
 
+## 導入
+
+```powershell
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+- Python 3.10 以上。学会別抽出器と評価は標準ライブラリだけで動きます
+- playwright は汎用抽出の描画に使います。入れたあとに `python -m playwright install chromium` を実行します
+- numpy・sentence-transformers は関連度（`rank`・`demo`）で使います。モデル `intfloat/multilingual-e5-base`（約1.1GB）は初回に自動で取得されます
+- `requirements.txt` は Windows の pip が文字コード（cp932）で読めるよう、英数字だけで書いています
+
 ## 汎用の抽出（構造推定・基準手法）
 
 どの学会にも同じ方法をかけます。学会ごとのタグ名・クラス名は持たず、描画後の HTML で繰り返し現れる欄から
@@ -39,6 +51,31 @@ python -m confprog.locate --list eval/conferences.csv
 リンクを「プログラム」などの一般的な語で点数づけして2段までたどり、抽出器が発表一覧と判定したページを返します。
 リンク先も発表一覧のページ（目次・セッション一覧）は「ハブ」とみなし、リンク先のほうを返します。
 設計は Vault の `01_Research/卒論テーマ_関連資料/プログラムページ特定_設計_2026-10-25.md`。
+
+## 一括実行とデモ（学会リスト → 発表DB → 関連度）
+
+```powershell
+# 学会リスト（eval/conferences.csv）の全学会について、ページ特定 → 各ページの汎用抽出 → 発表DB まで
+python -m confprog build
+python -m confprog build --only MIRU ANLP      # 一部だけ流す（ほかの学会は前回分を使う）
+
+# 研究課題文を続けて入れて、関連する発表を見る（モデルは起動時に1回だけ読む）
+python -m confprog demo
+python -m confprog demo --top 20 --with-session
+
+# 1件だけ調べる・発表DBだけ作り直す
+python -m confprog rank "研究課題の文章"
+python -m confprog db build --out-dir data/out/batch
+```
+
+- `build` はページごとの抽出結果を `data/out/batch/generic_<学会><年>_<番号>.json`、ページ特定の記録を `locate_<学会><年>.json` に書き、最後に `data/db/presentations.jsonl` を作ります
+- 学会ごとの結果は `data/out/batch/summary.csv` に出ます。状態は次の4つです
+  - 成功：今回の結果に入れ替えた
+  - 前回分を使用：今回は失敗したので、前回の結果をそのまま使った
+  - 失敗（前回分なし）：今回も失敗し、前回の結果もない（発表DBに入らない）
+  - 前回分：今回は流していない（`--only` で外した）
+- 描画したページは `data/rendered/` にキャッシュされるので、2回目以降は新しいページの分しか時間がかかりません。初回は6大会で約1時間です
+- `demo` では、課題文を入れて空行（Enter を2回）で検索します。`:top N` で表示件数を変え、`:q` か Ctrl+C で終わります。結果は1件ごとに `data/runs/` に保存されます
 
 ## 学会別抽出器（正解データ作りの補助。Python 3.10 以上、追加ライブラリ不要）
 

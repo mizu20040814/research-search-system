@@ -1,7 +1,5 @@
-# 学会別抽出器と評価は標準ライブラリのみで動く(Python 3.10 以上)。
-# 汎用抽出の描画に使う(導入後に python -m playwright install chromium を実行する)
+# Python 3.10+. Setup notes are in README.md.
 playwright>=1.40
 
-# 関連度ランキング(python -m confprog rank)で使う。モデル intfloat/multilingual-e5-base は初回に自動で取得される(約1.1GB)
 numpy
 sentence-transformers

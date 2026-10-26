@@ -146,6 +146,75 @@ class SearchCliTest(unittest.TestCase):
         self.assertEqual(seen, ["Q"])
 
 
+class DemoTest(unittest.TestCase):
+    setUp, tearDown, run_cli = SearchCliTest.setUp, SearchCliTest.tearDown, SearchCliTest.run_cli
+
+    def run_demo(self, text, argv=()):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(out):
+            code = search_cli.main(["demo", *argv], embed_factory=lambda m: self.fake, stdin=io.StringIO(text),
+                                   **self.paths)
+        return code, out.getvalue()
+
+    def test_read_query_multiline(self):
+        lines = iter(["a\n", "b\n", "\n", "c\n"])
+        self.assertEqual(search_cli.read_query(lines), "a\nb")
+        self.assertEqual(search_cli.read_query(lines), "c")
+        self.assertIsNone(search_cli.read_query(lines))
+        # コマンドは空行を待たずに1行で返す
+        self.assertEqual(search_cli.read_query(iter([":top 3\n", "x\n"])), ":top 3")
+
+    def test_breakdown(self):
+        results = [{"event": "B"}, {"event": "A"}, {"event": "B"}]
+        self.assertEqual(search_cli.breakdown(results), "上位3件の内訳：B 2件／A 1件")
+
+    def test_demo_runs_two_queries_then_quits(self):
+        self.run_cli(["db", "build"])
+        code, out = self.run_demo("深層\n\n音声\n\n:q\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("準備完了"), 1)
+        self.assertEqual(out.count(" 1. "), 2)
+        self.assertEqual(out.count("の内訳："), 2)
+        self.assertEqual(len(list(self.paths["runs_dir"].glob("*.json"))), 2)
+        passage_calls = [c for c in self.fake.calls if c and c[0].startswith("passage: ")]
+        query_calls = [c for c in self.fake.calls if c and c[0].startswith("query: ")]
+        self.assertEqual((len(passage_calls), len(query_calls)), (1, 2))
+
+    def test_demo_top_command(self):
+        self.run_cli(["db", "build"])
+        code, out = self.run_demo(":top 1\n深層\n\n")
+        self.assertEqual(code, 0)
+        self.assertIn(" 1. ", out)
+        self.assertNotIn(" 2. ", out)
+        self.assertIn("上位3件の内訳：", out)
+
+    def test_breakdown_stays_at_breakdown_top(self):
+        from unittest import mock
+        self.run_cli(["db", "build"])
+        with mock.patch.object(search_cli, "BREAKDOWN_TOP", 2):
+            code, out = self.run_demo(":top 3\n深層\n\n")
+        self.assertIn(" 3. ", out)
+        self.assertIn("上位2件の内訳：", out)
+
+    def test_demo_bad_top(self):
+        self.run_cli(["db", "build"])
+        code, out = self.run_demo(":top abc\n:top 0\n:q\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count(":top N（N は1以上）"), 2)
+
+    def test_demo_empty_input_ignored(self):
+        self.run_cli(["db", "build"])
+        code, out = self.run_demo("\n\n:q\n")
+        self.assertEqual(code, 0)
+        self.assertNotIn(" 1. ", out)
+        self.assertEqual(list(self.paths["runs_dir"].glob("*.json")), [])
+
+    def test_demo_without_db(self):
+        code, out = self.run_demo(":q\n")
+        self.assertEqual(code, 1)
+        self.assertIn("db build", out)
+
+
 class MainDispatchTest(unittest.TestCase):
     def test_db_and_rank_go_to_search_cli(self):
         from unittest import mock
@@ -153,7 +222,8 @@ class MainDispatchTest(unittest.TestCase):
         with mock.patch("confprog.search_cli.main", return_value=7) as m:
             self.assertEqual(entry.main(["db", "build"]), 7)
             self.assertEqual(entry.main(["rank", "Q"]), 7)
-        self.assertEqual(m.call_count, 2)
+            self.assertEqual(entry.main(["demo"]), 7)
+        self.assertEqual(m.call_count, 3)
 
     def test_conference_command_still_parsed(self):
         from confprog import __main__ as entry

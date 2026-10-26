@@ -31,6 +31,7 @@ from .authors import parse_authors, split_top_level
 from .dom import Node, parse
 from .schema import Presentation
 
+METHOD = "generic-structure-v2.2"  # 抽出結果の JSON に入れる手法名
 INLINE_TAGS = {"span", "a", "b", "i", "em", "strong", "small", "font", "sup", "sub", "u", "mark", "label"}
 MIN_COUNT = 3  # セッションごとのページ(発表3〜6件)にも対応する
 MAX_LINE = 4  # 5行目以降は同じ行番号として扱う
@@ -461,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or Path("data/out") / f"generic_{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "method": "generic-structure-v2.2",
+        "method": METHOD,
         "conference": args.conference,
         "year": args.year,
         "source_url": args.url,
