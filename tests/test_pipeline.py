@@ -140,6 +140,34 @@ class BuildOneTest(unittest.TestCase):
                          ("EV", 2026, "前回分", 3, 2, 7))
         self.assertIsNone(pipeline.previous_result("none2026", self.out))
 
+    def test_row_missing_url(self):
+        r = pipeline.build_one({"学会": "EV", "年": "2026", "トップURL": None}, self.out,
+                               **Fakes({}, {}).fns())
+        self.assertEqual(r.status, "失敗（前回分なし）")
+        self.assertIn("トップURL", r.reason)
+
+    def test_swap_failure_restores_previous(self):
+        from unittest import mock
+        write_prev(self.out, "ev2026", 1)
+        write_prev(self.out, "ev2026", 2)
+        before = {p.name: p.read_text(encoding="utf-8") for p in self.out.glob("generic_*.json")}
+        real_move = pipeline.shutil.move
+        calls = []
+
+        def flaky(src, dst):
+            calls.append(src)
+            if "_new" in str(src) and len([c for c in calls if "_new" in str(c)]) == 2:
+                raise PermissionError("locked")
+            return real_move(src, dst)
+
+        f = Fakes({"top": ["p1", "p2"]}, {"p1": 1, "p2": 1})
+        with mock.patch.object(pipeline.shutil, "move", side_effect=flaky):
+            r = pipeline.build_one(row(), self.out, **f.fns())
+        self.assertEqual(r.status, "前回分を使用")
+        self.assertIn("PermissionError", r.reason)
+        after = {p.name: p.read_text(encoding="utf-8") for p in self.out.glob("generic_*.json")}
+        self.assertEqual(after, before)
+
     def test_temp_dir_is_removed(self):
         pipeline.build_one(row(), self.out, **Fakes({"top": ["p1"]}, {"p1": 1}).fns())
         pipeline.build_one(row(), self.out, **Fakes({"top": RuntimeError("x")}, {}).fns())
@@ -206,6 +234,31 @@ class RunBuildTest(unittest.TestCase):
             code = pipeline.main(["build", "--list", str(lst), "--out-dir", str(self.out), "--db", str(self.db)],
                                  **Fakes({"t1": []}, {}).fns())
         self.assertEqual(code, 1)
+
+    def test_short_row_does_not_stop_others(self):
+        f = Fakes({"t2": ["b"]}, {"b": 1})
+        results, n = pipeline.run_build([{"学会": "EV", "年": "2026", "トップURL": None}, row("FW", url="t2")],
+                                        self.out, self.db, **f.fns())
+        self.assertEqual([r.status for r in results], ["失敗（前回分なし）", "成功"])
+
+    def test_locked_summary_is_a_warning(self):
+        (self.out / "summary.csv").mkdir(parents=True)  # 開けないファイルの代わり
+        f = Fakes({"t1": ["a"]}, {"a": 1})
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            results, n = pipeline.run_build([row("EV", url="t1")], self.out, self.db, **f.fns())
+        self.assertEqual(n, 1)
+        self.assertIn("summary.csv", err.getvalue())
+
+    def test_main_rejects_non_utf8_list(self):
+        lst = Path(self.tmp.name) / "list.csv"
+        lst.write_bytes("学会,年,トップURL,メモ\nEV,2026,t1,x\n".encode("cp932"))
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(out):
+            code = pipeline.main(["build", "--list", str(lst), "--out-dir", str(self.out), "--db", str(self.db)],
+                                 **Fakes({}, {}).fns())
+        self.assertEqual(code, 1)
+        self.assertIn("UTF-8", out.getvalue())
 
     def test_dunder_main_dispatches_build(self):
         from confprog import __main__ as entry
