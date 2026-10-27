@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 卒業研究「研究課題を説明する文章から、学会を横断して関連発表の [学会, 発表名] を返す」システムのコードです。
-計画は Obsidian Vault の `01_Research/卒論テーマ_関連資料/10月ゼミ発表_進捗プラン_2026-10.md` にあります。
+方針の正本は Obsidian Vault（`C:\Users\mizu2\Obsidian Notes`、GitHub の非公開リポジトリ `mizu20040814/obsidian-vault` と同期）の `01_Research/卒論テーマ_関連資料/卒業研究_決定版.md`、卒研ノートの目次は同じフォルダの `_MOC_卒研.md` です。タスクは Notion のチケット（TK-番号）で管理しています。
+Vault に設計・実装計画などのノートを書くときは、Vault の `CLAUDE.md` の frontmatter 規則に従い、書く前に `git pull`、書いたら Commit・Push してください。
 
 ## 何を作るか（2026-10-07 確定）
 - システム：研究課題を説明する文章を入れると、学会を横断して関連発表の [学会, 発表名] を返す
