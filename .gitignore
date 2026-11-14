@@ -11,3 +11,5 @@ data/db/
 data/runs/
 # TK-15 の関連度の結果例（研究課題文と検索結果の一時ファイル）もコミットしない
 data/tk15/
+# TK-37 で保存した未見大会のスナップショット（HTML 本体）。記録は eval/unseen_pages.csv
+data/unseen/
